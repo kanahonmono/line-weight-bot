@@ -20,7 +20,8 @@ line_bot_api = LineBotApi(LINE_CHANNEL_ACCESS_TOKEN)
 handler = WebhookHandler(LINE_CHANNEL_SECRET)
 
 # Google Sheets設定
-SPREADSHEET_ID = 'スプレッドシートIDをここに入れてください'
+SPREADSHEET_ID = '1mmdxzloT6rOmx7SiVT4X2PtmtcsBxivcHSoMUvjDCqc
+'
 SCOPES = ['https://www.googleapis.com/auth/spreadsheets']
 
 credentials_info = os.getenv("GOOGLE_APPLICATION_CREDENTIALS_JSON")

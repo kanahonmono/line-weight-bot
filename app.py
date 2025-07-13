@@ -39,7 +39,7 @@ def append_weight_data(user_id, date, weight):
     try:
         result = sheet.values().append(
             spreadsheetId=SPREADSHEET_ID,
-            range='Sheet1!A:C',  # 範囲は「列のみ」指定。行番号は入れない
+            range='シート1!A:C',  # 範囲は「列のみ」指定。行番号は入れない
             valueInputOption='USER_ENTERED',
             insertDataOption='INSERT_ROWS',
             body=body

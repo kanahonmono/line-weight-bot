@@ -33,111 +33,129 @@ credentials = service_account.Credentials.from_service_account_info(
 service = build('sheets', 'v4', credentials=credentials)
 sheet = service.spreadsheets()
 
-# --- ユーザー情報取得 ---
-def get_user_info(username):
-    # Usersシートからユーザー情報を取得
-    # 期待する Users シートの形式（例）
-    # | ユーザー名 | 体重列 | モード列 | モード名    |
-    # | -------- | ------ | ------ | --------- |
-    # | 自分     | B      | C      | 筋トレモード |
-    # | 母       | D      | E      | 親モード    |
-    # | 父       | F      | G      | 親モード    |
-    try:
-        result = sheet.values().get(
-            spreadsheetId=SPREADSHEET_ID,
-            range='Users!A2:D'  # ヘッダー1行目として2行目から取得
-        ).execute()
-        rows = result.get('values', [])
-        for row in rows:
-            if len(row) >= 4 and row[0] == username:
-                return {
-                    'weight_col': row[1],  # 体重の列（例 "B"）
-                    'mode_col': row[2],    # モード列（例 "C"）
-                    'mode': row[3]         # モード名（例 "筋トレモード"）
-                }
-        return None
-    except Exception as e:
-        print(f"Error fetching user info: {e}")
-        return None
+# Excel列記号を0始まりのインデックスに変換（A→0, B→1, ...）
+def col_letter_to_index(letter):
+    letter = letter.upper()
+    result = 0
+    for ch in letter:
+        result = result * 26 + (ord(ch) - ord('A') + 1)
+    return result - 1
 
-# --- 日付行検索 ---
-def find_date_row(date_str):
-    # WeightsシートのA列（日付列）から該当日付の行番号を探す
-    try:
-        result = sheet.values().get(
-            spreadsheetId=SPREADSHEET_ID,
-            range='Weights!A2:A'
-        ).execute()
-        dates = result.get('values', [])
-        for i, row in enumerate(dates, start=2):
-            if row and row[0] == date_str:
-                return i
-        return None
-    except Exception as e:
-        print(f"Error finding date row: {e}")
-        return None
+def get_users():
+    """Usersシートから登録情報を取得"""
+    result = sheet.values().get(
+        spreadsheetId=SPREADSHEET_ID,
+        range='Users!A2:D'  # ヘッダー除く
+    ).execute()
+    values = result.get('values', [])
+    users = {}
+    for row in values:
+        if len(row) < 4:
+            continue
+        name, mode, weight_col, mode_col = row[0], row[1], row[2], row[3]
+        users[name] = {
+            'mode': mode,
+            'weight_col': weight_col,
+            'mode_col': mode_col
+        }
+    return users
 
-# --- 日付行追加 ---
-def append_date_row(date_str):
-    # Weightsシートに日付を追加（A列のみ）
-    try:
-        body = {'values': [[date_str]]}
-        result = sheet.values().append(
+def update_user_mode_in_users(name, mode):
+    """Usersシートのモードを更新"""
+    # まずUsers全体取得して何行目か探す
+    result = sheet.values().get(spreadsheetId=SPREADSHEET_ID, range='Users!A2:D').execute()
+    values = result.get('values', [])
+    for i, row in enumerate(values):
+        if len(row) > 0 and row[0] == name:
+            update_range = f'Users!B{i+2}'  # モードはB列、2行目から開始
+            sheet.values().update(
+                spreadsheetId=SPREADSHEET_ID,
+                range=update_range,
+                valueInputOption='USER_ENTERED',
+                body={'values': [[mode]]}
+            ).execute()
+            return True
+    return False
+
+def append_or_update_weight(name, date_str, weight, users):
+    """Weightsシートの該当日付の体重・モード列を更新、なければ追加"""
+    # 全Weights取得（1行目はヘッダー）
+    result = sheet.values().get(
+        spreadsheetId=SPREADSHEET_ID,
+        range='Weights!A2:Z1000'  # 2行目以降
+    ).execute()
+    values = result.get('values', [])
+    weight_col_idx = col_letter_to_index(users[name]['weight_col'])
+    mode_col_idx = col_letter_to_index(users[name]['mode_col'])
+    mode = users[name]['mode']
+
+    # 日付をA列（index0）から検索
+    target_row_idx = None
+    for i, row in enumerate(values):
+        if len(row) > 0 and row[0] == date_str:
+            target_row_idx = i + 2  # Sheetsの実行行番号
+            break
+
+    if target_row_idx is None:
+        # 新規行を追加
+        new_row = [''] * (max(weight_col_idx, mode_col_idx) + 1)
+        new_row[0] = date_str
+        new_row[weight_col_idx] = str(weight)
+        new_row[mode_col_idx] = mode
+        # append
+        sheet.values().append(
             spreadsheetId=SPREADSHEET_ID,
-            range='Weights!A:A',
+            range='Weights!A2',
             valueInputOption='USER_ENTERED',
             insertDataOption='INSERT_ROWS',
-            body=body
+            body={'values': [new_row]}
         ).execute()
-        # 追加された行番号を計算
-        updates = result.get('updates', {})
-        updated_rows = updates.get('updatedRows', 0)
-        # 末尾に追加なので行番号は今の最大行
-        result_get = sheet.values().get(
-            spreadsheetId=SPREADSHEET_ID,
-            range='Weights!A:A'
-        ).execute()
-        total_rows = len(result_get.get('values', []))
-        return total_rows  # 追加された日付の行番号
-    except Exception as e:
-        print(f"Error appending date row: {e}")
-        return None
+    else:
+        # 既存行の更新
+        # 更新範囲は行と列を指定する必要があるため、1セルずつ更新
+        weight_cell = f"Weights!{users[name]['weight_col']}{target_row_idx}"
+        mode_cell = f"Weights!{users[name]['mode_col']}{target_row_idx}"
 
-# --- セル更新 ---
-def update_cell(row, col, value):
-    # 指定のシートセルに値を更新
-    try:
-        range_str = f"Weights!{col}{row}"
-        body = {'values': [[value]]}
         sheet.values().update(
             spreadsheetId=SPREADSHEET_ID,
-            range=range_str,
+            range=weight_cell,
             valueInputOption='USER_ENTERED',
-            body=body
+            body={'values': [[str(weight)]]}
         ).execute()
-        print(f"Updated {range_str} to {value}")
-    except Exception as e:
-        print(f"Error updating cell {range_str}: {e}")
+        sheet.values().update(
+            spreadsheetId=SPREADSHEET_ID,
+            range=mode_cell,
+            valueInputOption='USER_ENTERED',
+            body={'values': [[mode]]}
+        ).execute()
 
-# --- 体重記録 ---
-def record_weight(username, date_str, weight):
-    user_info = get_user_info(username)
-    if not user_info:
-        raise Exception(f"ユーザー情報が見つかりません: {username}")
-    weight_col = user_info['weight_col']
-    mode_col = user_info['mode_col']
-    mode = user_info['mode']
+def get_status_text(users):
+    today = datetime.now().strftime('%Y-%m-%d')
+    # Weightsシートから今日のデータを取得
+    result = sheet.values().get(
+        spreadsheetId=SPREADSHEET_ID,
+        range=f'Weights!A2:Z1000'
+    ).execute()
+    values = result.get('values', [])
 
-    row = find_date_row(date_str)
-    if not row:
-        row = append_date_row(date_str)
-        if not row:
-            raise Exception("日付の追加に失敗しました。")
+    # 今日の行を探す
+    today_row = None
+    for row in values:
+        if len(row) > 0 and row[0] == today:
+            today_row = row
+            break
 
-    # 体重記録
-    update_cell(row, weight_col, weight)
-    # モードも同じ行に書き込み（最新状態のため）
-    update_cell(row, mode_col, mode)
+    if not today_row:
+        return "今日の体重記録はまだありません。"
+
+    texts = [f"【{today}の体重状況】"]
+    for name, info in users.items():
+        w_idx = col_letter_to_index(info['weight_col'])
+        m_idx = col_letter_to_index(info['mode_col'])
+        weight = today_row[w_idx] if w_idx < len(today_row) else "未記録"
+        mode = today_row[m_idx] if m_idx < len(today_row) else info['mode']
+        texts.append(f"{name}：{weight}kg（{mode}）")
+    return "\n".join(texts)
 
 @app.route("/callback", methods=['POST'])
 def callback():
@@ -157,60 +175,138 @@ def callback():
 @handler.add(MessageEvent, message=TextMessage)
 def handle_message(event):
     text = event.message.text.strip()
-    user_id = event.source.user_id  # 今回はユーザー名はLINE側ユーザーIDで管理しない想定
+    users = get_users()
 
-    # ここではユーザー名をLINEユーザーIDから得るのは別途必要
-    # まずは「名前 登録」「体重 YYYY-MM-DD 数字」など簡易対応例
-    try:
-        if text.startswith("登録"):
-            # 例: 登録 自分
-            parts = text.split()
-            if len(parts) != 2:
-                reply = "登録コマンドは「登録 ユーザー名」の形式で送ってください。"
+    if text.startswith("登録"):
+        # 登録 名前 モード 例）登録 かなた 親モード
+        parts = text.split()
+        if len(parts) != 3:
+            reply = "登録コマンドは「登録 名前 モード」です。\n例）登録 かなた 親モード"
+        else:
+            _, name, mode = parts
+            if mode not in ["親モード", "筋トレモード"]:
+                reply = "モードは「親モード」か「筋トレモード」で指定してください。"
+            elif name in users:
+                reply = f"{name}さんはすでに登録されています。"
             else:
-                username = parts[1]
-                # 実際はUsersシートに登録処理は別途必要（ここは案内のみ）
-                reply = f"{username}さんの登録を受け付けました。\n登録情報は管理者が設定してください。"
-            line_bot_api.reply_message(event.reply_token, TextSendMessage(text=reply))
-            return
+                # 体重列・モード列の割当を決める（Usersの空き列から自動割当するロジック）
+                # 例: B/C, D/E, F/G, H/I, ... を順に割り当てる
 
-        if text.startswith("体重"):
-            # 例: 体重 2025-07-13 65.5
-            parts = text.split()
-            if len(parts) != 3:
-                reply = "体重記録は「体重 YYYY-MM-DD 数字」の形式で送ってください。"
-                line_bot_api.reply_message(event.reply_token, TextSendMessage(text=reply))
-                return
+                used_weight_cols = [u['weight_col'] for u in users.values()]
+                used_mode_cols = [u['mode_col'] for u in users.values()]
+
+                # 列はB=2, D=4, F=6... のように奇数を飛ばして割り当てる例
+                # ここではB,C=2,3 D,E=4,5 F,G=6,7 で決定
+                candidate_cols = [('B', 'C'), ('D', 'E'), ('F', 'G'), ('H', 'I'), ('J', 'K')]
+
+                for w_col, m_col in candidate_cols:
+                    if w_col not in used_weight_cols and m_col not in used_mode_cols:
+                        weight_col = w_col
+                        mode_col = m_col
+                        break
+                else:
+                    reply = "これ以上登録できません（列の割当不足）"
+                    line_bot_api.reply_message(event.reply_token, TextSendMessage(text=reply))
+                    return
+
+                # Usersシートに追加
+                append_values = [[name, mode, weight_col, mode_col]]
+                sheet.values().append(
+                    spreadsheetId=SPREADSHEET_ID,
+                    range='Users!A2:D',
+                    valueInputOption='USER_ENTERED',
+                    insertDataOption='INSERT_ROWS',
+                    body={'values': append_values}
+                ).execute()
+
+                reply = (f"{name}さんを{mode}で登録しました！\n\n"
+                         f"体重・モード列はWeightsシートの{weight_col}列と{mode_col}列に記録されます。\n"
+                         "【次の操作】\n"
+                         "・体重を記録するには「体重 YYYY-MM-DD 体重」の形式で送信してください。\n"
+                         "・今日の体重なら「体重 体重」のみで記録できます。\n"
+                         "・モード変更は「モード変更 名前 モード」で送信してください。\n"
+                         "・「状況」で今日の記録を確認できます。")
+
+    elif text.startswith("モード変更"):
+        # モード変更 名前 モード 例）モード変更 かなた 筋トレモード
+        parts = text.split()
+        if len(parts) != 3:
+            reply = "モード変更コマンドは「モード変更 名前 モード」です。\n例）モード変更 かなた 親モード"
+        else:
+            _, name, mode = parts
+            if mode not in ["親モード", "筋トレモード"]:
+                reply = "モードは「親モード」か「筋トレモード」で指定してください。"
+            elif name not in users:
+                reply = f"{name}さんはまだ登録されていません。"
+            else:
+                update_user_mode_in_users(name, mode)
+                # Weightsシートのモード列も更新したい
+                # ここでは更新省略（必要なら追加実装）
+                reply = f"{name}さんのモードを{mode}に変更しました。"
+
+    elif text.startswith("体重"):
+        # 体重 [日付] [数字] または 体重 [数字]
+        parts = text.split()
+        if len(parts) == 3:
             _, date_str, weight_str = parts
-            weight = float(weight_str)
-            # LINEユーザーIDからユーザー名紐付けは本来必要だが、今回は送信した名前を使う想定
-            # 例: "自分"などで送信者名決める運用
-            username = "自分"  # ここは仮で固定
-            record_weight(username, date_str, weight)
-            reply = f"{date_str}の{username}さんの体重 {weight}kgを記録しました！"
-            line_bot_api.reply_message(event.reply_token, TextSendMessage(text=reply))
-            return
+            name = None
+            reply = "登録されている名前を最初に入力してください。\n例）体重 かなた 2025-07-13 65.5"
+        elif len(parts) == 2:
+            _, weight_str = parts
+            # 今日の日付で記録、名前必要
+            name = None
+            reply = "登録されている名前を最初に入力してください。\n例）体重 かなた 65.5"
+        elif len(parts) == 4:
+            # 例）体重 かなた 2025-07-13 65.5
+            _, name, date_str, weight_str = parts
+            if name not in users:
+                reply = f"{name}さんは登録されていません。先に登録してください。"
+            else:
+                try:
+                    datetime.strptime(date_str, '%Y-%m-%d')
+                    weight = float(weight_str)
+                    append_or_update_weight(name, date_str, weight, users)
+                    reply = f"{name}さんの{date_str}の体重 {weight}kg を記録しました。"
+                except Exception:
+                    reply = "日付や体重の形式が正しくありません。"
+        elif len(parts) == 3:
+            # 例）体重 かなた 65.5 今日の日付
+            _, name, weight_str = parts
+            if name not in users:
+                reply = f"{name}さんは登録されていません。先に登録してください。"
+            else:
+                try:
+                    weight = float(weight_str)
+                    date_str = datetime.now().strftime('%Y-%m-%d')
+                    append_or_update_weight(name, date_str, weight, users)
+                    reply = f"{name}さんの今日({date_str})の体重 {weight}kg を記録しました。"
+                except Exception:
+                    reply = "体重の形式が正しくありません。"
+        else:
+            reply = "体重記録の形式が違います。\n\n- 「体重 名前 YYYY-MM-DD 体重」\n- 「体重 名前 体重」\nで送信してください。"
 
-        # 数字だけの送信は今日の日付で自分の体重記録
-        if text.replace('.', '', 1).isdigit():
-            weight = float(text)
-            date_str = datetime.now().strftime('%Y-%m-%d')
-            username = "自分"  # 仮固定
-            record_weight(username, date_str, weight)
-            reply = f"今日({date_str})の{username}さんの体重 {weight}kgを記録しました！"
-            line_bot_api.reply_message(event.reply_token, TextSendMessage(text=reply))
-            return
+    elif text == "状況":
+        users = get_users()
+        reply = get_status_text(users)
 
-        reply = "こんにちは！\n体重記録は「体重 YYYY-MM-DD 数字」か、数字だけ送ってください。"
-        line_bot_api.reply_message(event.reply_token, TextSendMessage(text=reply))
+    else:
+        reply = (
+            "【使い方】\n"
+            "1. 登録：登録 名前 モード（親モード or 筋トレモード）\n"
+            "　例）登録 かなた 親モード\n"
+            "2. 体重記録：\n"
+            "　・体重 名前 YYYY-MM-DD 体重\n"
+            "　・体重 名前 体重（今日の日付で登録）\n"
+            "3. モード変更：モード変更 名前 モード\n"
+            "　例）モード変更 かなた 筋トレモード\n"
+            "4. 状況：今日の体重とモードを一覧表示\n"
+        )
 
-    except Exception as e:
-        print(f"Error handling message: {e}")
-        line_bot_api.reply_message(event.reply_token, TextSendMessage(text="エラーが発生しました。もう一度試してください。"))
+    line_bot_api.reply_message(event.reply_token, TextSendMessage(text=reply))
 
 @app.route("/", methods=["GET"])
 def home():
-    return "LINE Bot is running!"
+    return "LINEダイエットBotが稼働中です！"
 
 if __name__ == "__main__":
     port = int(os.getenv("PORT", 5000))

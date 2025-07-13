@@ -57,12 +57,12 @@ def get_user_info(username):
 # 自動で空き列を見つける
 
 def find_next_available_columns():
-    range_ = "Users!B1:Z1"
+    range_ = "Users!A1:Z1"  # A列から読むように変更
     result = sheet.values().get(spreadsheetId=SPREADSHEET_ID, range=range_).execute()
     header = result.get('values', [])
     header_row = header[0] if header else []
 
-    col_index = 1
+    col_index = 1  # B列から探索
     while col_index + 1 < 26:
         col1 = chr(ord('A') + col_index)
         col2 = chr(ord('A') + col_index + 1)
@@ -71,6 +71,7 @@ def find_next_available_columns():
             return col1, col2
         col_index += 2
     raise Exception("これ以上登録できる列がありません。")
+
 
 # ユーザー登録（空き列に自動割り当て）
 

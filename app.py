@@ -34,37 +34,17 @@ credentials = service_account.Credentials.from_service_account_info(
 service = build('sheets', 'v4', credentials=credentials)
 sheet = service.spreadsheets()
 
-# LINEユーザーIDからユーザー情報取得
-
-def get_user_info_by_line_id(line_user_id):
-    range_ = "Users!A2:E"
-    try:
-        result = sheet.values().get(spreadsheetId=SPREADSHEET_ID, range=range_).execute()
-        values = result.get("values", [])
-        for row in values:
-            if len(row) >= 5 and row[4] == line_user_id:
-                return {
-                    "username": row[0],
-                    "mode": row[1],
-                    "weight_col": row[2],
-                    "mode_col": row[3],
-                }
-        return None
-    except Exception as e:
-        print(f"LINE IDでユーザー取得失敗: {e}")
-        return None
-
-# ユーザー情報取得（名前指定）
+# ユーザー情報取得
 
 def get_user_info(username):
-    range_ = "Users!A2:E"
+    range_ = "Users!A2:D"
     try:
         result = sheet.values().get(spreadsheetId=SPREADSHEET_ID, range=range_).execute()
         values = result.get("values", [])
         for row in values:
             if row[0] == username:
                 return {
-                    "username": row[0],
+                    "username": username,
                     "mode": row[1],
                     "weight_col": row[2],
                     "mode_col": row[3],
@@ -74,15 +54,36 @@ def get_user_info(username):
         print(f"ユーザー情報取得エラー: {e}")
         return None
 
-# ユーザー登録
+# 自動で空き列を見つける
 
-def register_user(username, mode, weight_col, mode_col, line_user_id):
+def find_next_available_columns():
+    range_ = "Weights!1:1"
+    result = sheet.values().get(spreadsheetId=SPREADSHEET_ID, range=range_).execute()
+    header = result.get('values', [[]])[0]
+    col_index = 1
+    while col_index + 1 < 26:
+        col1 = chr(ord('A') + col_index)
+        col2 = chr(ord('A') + col_index + 1)
+        if (len(header) <= col_index or header[col_index] == '') and \
+           (len(header) <= col_index + 1 or header[col_index + 1] == ''):
+            return col1, col2
+        col_index += 2
+    raise Exception("これ以上登録できる列がありません。")
+
+# ユーザー登録（空き列に自動割り当て）
+
+def register_user_auto(username, mode):
+    existing = get_user_info(username)
+    if existing:
+        return existing['weight_col'], existing['mode_col'], "既に登録されています。"
+
+    weight_col, mode_col = find_next_available_columns()
     sheet.values().append(
         spreadsheetId=SPREADSHEET_ID,
-        range="Users!A:E",
+        range="Users!A:D",
         valueInputOption="USER_ENTERED",
         insertDataOption="INSERT_ROWS",
-        body={"values": [[username, mode, weight_col, mode_col, line_user_id]]}
+        body={"values": [[username, mode, weight_col, mode_col]]}
     ).execute()
 
     sheet.values().batchUpdate(
@@ -92,21 +93,39 @@ def register_user(username, mode, weight_col, mode_col, line_user_id):
             {"range": f"Weights!{mode_col}1", "values": [[f"{username}モード"]]}
         ]}
     ).execute()
+    return weight_col, mode_col, "登録が完了しました！"
 
-# リセット（ユーザー削除）
+# ユーザーリセット
 
-def delete_user(username):
-    range_ = "Users!A2:E"
+def reset_user(username):
+    range_ = "Users!A2:D"
     result = sheet.values().get(spreadsheetId=SPREADSHEET_ID, range=range_).execute()
     values = result.get("values", [])
-    new_values = [row for row in values if row[0] != username]
+    new_values = []
+    removed_cols = None
+    for row in values:
+        if row[0] != username:
+            new_values.append(row)
+        else:
+            removed_cols = (row[2], row[3])
 
-    sheet.values().update(
-        spreadsheetId=SPREADSHEET_ID,
-        range=range_,
-        valueInputOption="USER_ENTERED",
-        body={"values": new_values}
-    ).execute()
+    if removed_cols:
+        sheet.values().update(
+            spreadsheetId=SPREADSHEET_ID,
+            range="Users!A2:D",
+            valueInputOption="USER_ENTERED",
+            body={"values": new_values}
+        ).execute()
+
+        sheet.values().batchUpdate(
+            spreadsheetId=SPREADSHEET_ID,
+            body={"data": [
+                {"range": f"Weights!{removed_cols[0]}1:{removed_cols[0]}", "values": [[""]]},
+                {"range": f"Weights!{removed_cols[1]}1:{removed_cols[1]}", "values": [[""]]}
+            ], "valueInputOption": "USER_ENTERED"}
+        ).execute()
+        return True
+    return False
 
 # 体重記録
 
@@ -119,35 +138,40 @@ def append_weight_data(username, date, weight):
     mode_col = user_info['mode_col']
     weights_sheet = 'Weights'
 
-    date_col_range = f"{weights_sheet}!A2:A"
-    date_result = sheet.values().get(spreadsheetId=SPREADSHEET_ID, range=date_col_range).execute()
-    dates = [r[0] for r in date_result.get('values', []) if r]
+    try:
+        date_col_range = f"{weights_sheet}!A2:A"
+        date_result = sheet.values().get(spreadsheetId=SPREADSHEET_ID, range=date_col_range).execute()
+        dates = [r[0] for r in date_result.get('values', []) if r]
 
-    if date in dates:
-        row_index = dates.index(date) + 2
-    else:
-        row_index = len(dates) + 2
-        sheet.values().append(
+        if date in dates:
+            row_index = dates.index(date) + 2
+        else:
+            row_index = len(dates) + 2
+            sheet.values().append(
+                spreadsheetId=SPREADSHEET_ID,
+                range=f"{weights_sheet}!A:A",
+                valueInputOption='USER_ENTERED',
+                insertDataOption='INSERT_ROWS',
+                body={'values': [[date]]}
+            ).execute()
+
+        sheet.values().update(
             spreadsheetId=SPREADSHEET_ID,
-            range=f"{weights_sheet}!A:A",
+            range=f"{weights_sheet}!{weight_col}{row_index}",
             valueInputOption='USER_ENTERED',
-            insertDataOption='INSERT_ROWS',
-            body={'values': [[date]]}
+            body={'values': [[weight]]}
         ).execute()
 
-    sheet.values().update(
-        spreadsheetId=SPREADSHEET_ID,
-        range=f"{weights_sheet}!{weight_col}{row_index}",
-        valueInputOption='USER_ENTERED',
-        body={'values': [[weight]]}
-    ).execute()
+        sheet.values().update(
+            spreadsheetId=SPREADSHEET_ID,
+            range=f"{weights_sheet}!{mode_col}{row_index}",
+            valueInputOption='USER_ENTERED',
+            body={'values': [[user_info['mode']]]}
+        ).execute()
 
-    sheet.values().update(
-        spreadsheetId=SPREADSHEET_ID,
-        range=f"{weights_sheet}!{mode_col}{row_index}",
-        valueInputOption='USER_ENTERED',
-        body={'values': [[user_info['mode']]]}
-    ).execute()
+    except Exception as e:
+        print(f"体重記録エラー: {e}")
+        raise
 
 @app.route("/callback", methods=['POST'])
 def callback():
@@ -163,10 +187,15 @@ def callback():
 def handle_message(event):
     text = event.message.text.strip()
     parts = text.split()
-    line_user_id = event.source.user_id
 
     try:
-        if parts[0] == '体重':
+        if parts[0] == '登録' and len(parts) == 3:
+            username = parts[1]
+            mode = parts[2]
+            weight_col, mode_col, msg = register_user_auto(username, mode)
+            reply = f"{msg}\n体重列: {weight_col}, モード列: {mode_col}\n体重を記録するには：\n体重 {username} 体重 または 体重 {username} YYYY-MM-DD 体重"
+
+        elif parts[0] == '体重':
             if len(parts) == 4:
                 username = parts[1]
                 date = parts[2]
@@ -175,13 +204,6 @@ def handle_message(event):
                 username = parts[1]
                 date = datetime.now().strftime('%Y-%m-%d')
                 weight = float(parts[2])
-            elif len(parts) == 2:
-                user_info = get_user_info_by_line_id(line_user_id)
-                if not user_info:
-                    raise Exception("登録が必要です。管理者に依頼してください。")
-                username = user_info["username"]
-                date = datetime.now().strftime('%Y-%m-%d')
-                weight = float(parts[1])
             else:
                 raise Exception("体重コマンド形式エラー")
 
@@ -189,11 +211,14 @@ def handle_message(event):
             reply = f"{username} さんの {date} の体重 {weight}kg を記録しました！"
 
         elif parts[0] == 'リセット' and len(parts) == 2:
-            delete_user(parts[1])
-            reply = f"{parts[1]} さんの登録を削除しました。"
+            username = parts[1]
+            if reset_user(username):
+                reply = f"{username} さんのデータを削除しました。"
+            else:
+                reply = f"{username} さんは見つかりませんでした。"
 
         else:
-            reply = "こんにちは！\n■体重記録コマンド\n体重 ユーザー名 YYYY-MM-DD 体重\n体重 ユーザー名 体重\n体重 体重\n例）体重 かなた 2025-07-13 65.5\n例）体重 かなた 65.5\n登録がまだの方は管理者に登録を依頼してください。"
+            reply = "こんにちは！\n■体重記録コマンド\n体重 ユーザー名 YYYY-MM-DD 体重\n体重 ユーザー名 体重\n例）体重 かなた 2025-07-13 65.5\n例）体重 かなた 65.5\n登録がまだの方は管理者に登録を依頼してください。"
 
     except Exception as e:
         reply = f"エラーが発生しました: {e}"

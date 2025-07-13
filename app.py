@@ -59,13 +59,15 @@ def get_user_info(username):
 def find_next_available_columns():
     range_ = "Users!B1:Z1"
     result = sheet.values().get(spreadsheetId=SPREADSHEET_ID, range=range_).execute()
-    header = result.get('values', [[]])[0]
+    header = result.get('values', [])
+    header_row = header[0] if header else []
+
     col_index = 1
     while col_index + 1 < 26:
         col1 = chr(ord('A') + col_index)
         col2 = chr(ord('A') + col_index + 1)
-        if (len(header) <= col_index or header[col_index] == '') and \
-           (len(header) <= col_index + 1 or header[col_index + 1] == ''):
+        if (len(header_row) <= col_index or header_row[col_index] == '') and \
+           (len(header_row) <= col_index + 1 or header_row[col_index + 1] == ''):
             return col1, col2
         col_index += 2
     raise Exception("これ以上登録できる列がありません。")

@@ -34,7 +34,7 @@ def append_weight_data(user_id, date, weight):
     body = {'values': values}
     result = sheet.values().append(
         spreadsheetId=SPREADSHEET_ID,
-        range='Sheet1!A1:C1',
+        range='Sheet1!A1:C',
         valueInputOption='USER_ENTERED',
         insertDataOption='INSERT_ROWS',
         body=body

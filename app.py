@@ -33,20 +33,57 @@ credentials = service_account.Credentials.from_service_account_info(
 service = build('sheets', 'v4', credentials=credentials)
 sheet = service.spreadsheets()
 
+def get_registered_users():
+    # 登録ユーザー一覧をGoogle Sheetsから取得
+    try:
+        result = sheet.values().get(
+            spreadsheetId=SPREADSHEET_ID,
+            range='登録!A2:C'  # 登録シートでA列: user_id, B列: 名前, C列: モード
+        ).execute()
+        values = result.get('values', [])
+        # user_id をキーにして {user_id: {"name": 名前, "mode": モード}} の辞書を作成
+        users = {row[0]: {"name": row[1], "mode": row[2]} for row in values if len(row) >= 3}
+        return users
+    except Exception as e:
+        print(f"登録ユーザー取得エラー: {e}")
+        return {}
+
+def is_user_registered(user_id):
+    users = get_registered_users()
+    return user_id in users
+
+def register_user(user_id, name, mode):
+    # 登録シートにユーザー情報を追加
+    values = [[user_id, name, mode]]
+    body = {'values': values}
+    try:
+        result = sheet.values().append(
+            spreadsheetId=SPREADSHEET_ID,
+            range='登録!A:C',
+            valueInputOption='USER_ENTERED',
+            insertDataOption='INSERT_ROWS',
+            body=body
+        ).execute()
+        print(f"{result.get('updates', {}).get('updatedRows', 0)} rows appended to 登録.")
+        return True
+    except Exception as e:
+        print(f"登録エラー: {e}")
+        return False
+
 def append_weight_data(user_id, date, weight):
     values = [[user_id, date, weight]]
     body = {'values': values}
     try:
         result = sheet.values().append(
             spreadsheetId=SPREADSHEET_ID,
-            range='シート1!A:C',  # 範囲は「列のみ」指定。行番号は入れない
+            range='体重!A:C',  # 体重記録シート、A列: user_id, B列: 日付, C列: 体重
             valueInputOption='USER_ENTERED',
             insertDataOption='INSERT_ROWS',
             body=body
         ).execute()
-        print(f"{result.get('updates', {}).get('updatedRows', 0)} rows appended.")
+        print(f"{result.get('updates', {}).get('updatedRows', 0)} rows appended to 体重.")
     except Exception as e:
-        print(f"Google Sheets API append error: {e}")
+        print(f"体重記録エラー: {e}")
         raise
 
 @app.route("/callback", methods=['POST'])
@@ -69,6 +106,40 @@ def handle_message(event):
     text = event.message.text.strip()
     user_id = event.source.user_id
 
+    if not is_user_registered(user_id):
+        # 未登録ユーザーへの対応
+        if text.startswith("登録"):
+            parts = text.split()
+            if len(parts) == 3:
+                _, name, mode = parts
+                mode = mode.lower()
+                if mode not in ["親", "自分"]:
+                    reply = "モードは「親」か「自分」で指定してください。例：登録 太郎 親"
+                else:
+                    success = register_user(user_id, name, mode)
+                    if success:
+                        reply = f"{name}さん、モード「{mode}」で登録が完了しました！\n体重は「体重 YYYY-MM-DD 数字」か数字だけ送ってください。"
+                    else:
+                        reply = "登録に失敗しました。後でもう一度試してください。"
+            else:
+                reply = (
+                    "登録方法：\n"
+                    "「登録 名前 モード」で登録してください。\n"
+                    "例）登録 太郎 親\n"
+                    "モードは「親」か「自分」で指定してください。"
+                )
+            line_bot_api.reply_message(event.reply_token, TextSendMessage(text=reply))
+        else:
+            reply = (
+                "はじめまして！まずは登録してください。\n"
+                "登録方法：「登録 名前 モード」\n"
+                "例）登録 太郎 親\n"
+                "モードは「親」か「自分」で指定してください。"
+            )
+            line_bot_api.reply_message(event.reply_token, TextSendMessage(text=reply))
+        return
+
+    # 登録済みユーザーの処理
     if text.startswith("体重"):
         try:
             parts = text.split()

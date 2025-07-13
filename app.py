@@ -57,7 +57,7 @@ def get_user_info(username):
 # 自動で空き列を見つける
 
 def find_next_available_columns():
-    range_ = "Users!A1:Z1"  # A列から読むように変更
+    range_ = "Users!A1:Z1"  # A列からに修正
     result = sheet.values().get(spreadsheetId=SPREADSHEET_ID, range=range_).execute()
     header = result.get('values', [])
     header_row = header[0] if header else []
@@ -71,7 +71,6 @@ def find_next_available_columns():
             return col1, col2
         col_index += 2
     raise Exception("これ以上登録できる列がありません。")
-
 
 # ユーザー登録（空き列に自動割り当て）
 
@@ -177,7 +176,7 @@ def handle_message(event):
             append_weight_data(username, date, weight)
             reply = f"{username} さんの {date} の体重 {weight}kg を記録しました！"
         else:
-            reply = "コマンド例：\n登録 かなた 筋トレモード\n体重 かなた 65.5 または 体重 かなた 2025-07-13 65.5"
+            reply = "コマンド例：\n登録 ユーザー名 モード(親モード/筋トレモード)\n体重 ユーザー名 体重 または 体重 ユーザー名 YYYY-MM-DD 体重"
     except Exception as e:
         reply = f"エラーが発生しました: {e}"
 

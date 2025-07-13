@@ -12,6 +12,9 @@ app = Flask(__name__)
 
 LINE_CHANNEL_SECRET = os.getenv("LINE_CHANNEL_SECRET")
 LINE_CHANNEL_ACCESS_TOKEN = os.getenv("LINE_CHANNEL_ACCESS_TOKEN")
+if not LINE_CHANNEL_SECRET or not LINE_CHANNEL_ACCESS_TOKEN:
+    raise Exception("LINE_CHANNEL_SECRETまたはLINE_CHANNEL_ACCESS_TOKENが環境変数に設定されていません。")
+
 line_bot_api = LineBotApi(LINE_CHANNEL_ACCESS_TOKEN)
 handler = WebhookHandler(LINE_CHANNEL_SECRET)
 
@@ -19,27 +22,32 @@ SPREADSHEET_ID = '1mmdxzloT6rOmx7SiVT4X2PtmtcsBxivcHSoMUvjDCqc'
 SCOPES = ['https://www.googleapis.com/auth/spreadsheets']
 
 credentials_info = os.getenv("GOOGLE_APPLICATION_CREDENTIALS_JSON")
-if credentials_info is None:
+if not credentials_info:
     raise Exception("環境変数 'GOOGLE_APPLICATION_CREDENTIALS_JSON' が設定されていません。")
 credentials_dict = json.loads(credentials_info)
 credentials = service_account.Credentials.from_service_account_info(
     credentials_dict,
     scopes=SCOPES
 )
+
 service = build('sheets', 'v4', credentials=credentials)
 sheet = service.spreadsheets()
 
 def append_weight_data(user_id, date, weight):
     values = [[user_id, date, weight]]
     body = {'values': values}
-    result = sheet.values().append(
-        spreadsheetId=SPREADSHEET_ID,
-        range='Sheet1!A1:C',
-        valueInputOption='USER_ENTERED',
-        insertDataOption='INSERT_ROWS',
-        body=body
-    ).execute()
-    print(f"{result.get('updates').get('updatedRows')} rows appended.")
+    try:
+        result = sheet.values().append(
+            spreadsheetId=SPREADSHEET_ID,
+            range='Sheet1!A:C',  # 範囲は「列のみ」指定。行番号は入れない
+            valueInputOption='USER_ENTERED',
+            insertDataOption='INSERT_ROWS',
+            body=body
+        ).execute()
+        print(f"{result.get('updates', {}).get('updatedRows', 0)} rows appended.")
+    except Exception as e:
+        print(f"Google Sheets API append error: {e}")
+        raise
 
 @app.route("/callback", methods=['POST'])
 def callback():
@@ -51,6 +59,9 @@ def callback():
         handler.handle(body, signature)
     except InvalidSignatureError:
         abort(400)
+    except Exception as e:
+        app.logger.error(f"Exception in handler: {e}")
+        abort(500)
     return 'OK'
 
 @handler.add(MessageEvent, message=TextMessage)
@@ -70,10 +81,13 @@ def handle_message(event):
         except Exception:
             reply = "記録に失敗しました。正しいフォーマットは「体重 YYYY-MM-DD 数字」です。"
     elif text.replace('.', '', 1).isdigit():
-        weight = float(text)
-        date = datetime.now().strftime('%Y-%m-%d')
-        append_weight_data(user_id, date, weight)
-        reply = f"今日({date})の体重 {weight}kg を記録しました！"
+        try:
+            weight = float(text)
+            date = datetime.now().strftime('%Y-%m-%d')
+            append_weight_data(user_id, date, weight)
+            reply = f"今日({date})の体重 {weight}kg を記録しました！"
+        except Exception:
+            reply = "記録に失敗しました。もう一度試してください。"
     else:
         reply = "こんにちは！体重を記録するには「体重 YYYY-MM-DD 数字」か、数字だけ送ってください。"
 

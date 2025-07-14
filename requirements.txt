@@ -5,3 +5,5 @@ google-auth-httplib2
 google-auth-oauthlib
 gunicorn
 openai
+pandas
+matplotlib

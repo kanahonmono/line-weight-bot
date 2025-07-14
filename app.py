@@ -10,96 +10,136 @@ from datetime import datetime
 
 app = Flask(__name__)
 
-# LINE API設定
+# === 環境変数から設定読み込み ===
 LINE_CHANNEL_SECRET = os.getenv("LINE_CHANNEL_SECRET")
 LINE_CHANNEL_ACCESS_TOKEN = os.getenv("LINE_CHANNEL_ACCESS_TOKEN")
-if not LINE_CHANNEL_SECRET or not LINE_CHANNEL_ACCESS_TOKEN:
-    raise Exception("LINE_CHANNEL_SECRETまたはLINE_CHANNEL_ACCESS_TOKENが設定されていません。")
+GOOGLE_CREDENTIALS = os.getenv("GOOGLE_APPLICATION_CREDENTIALS_JSON")
+SPREADSHEET_ID = "1mmdxzloT6rOmx7SiVT4X2PtmtcsBxivcHSoMUvjDCqc"
+
+if not (LINE_CHANNEL_SECRET and LINE_CHANNEL_ACCESS_TOKEN and GOOGLE_CREDENTIALS):
+    raise Exception("環境変数が足りません")
 
 line_bot_api = LineBotApi(LINE_CHANNEL_ACCESS_TOKEN)
 handler = WebhookHandler(LINE_CHANNEL_SECRET)
 
-# Google Sheets設定
-SPREADSHEET_ID = '1mmdxzloT6rOmx7SiVT4X2PtmtcsBxivcHSoMUvjDCqc'
-SCOPES = ['https://www.googleapis.com/auth/spreadsheets']
-
-credentials_info = os.getenv("GOOGLE_APPLICATION_CREDENTIALS_JSON")
-if not credentials_info:
-    raise Exception("環境変数 'GOOGLE_APPLICATION_CREDENTIALS_JSON' が設定されていません。")
-credentials_dict = json.loads(credentials_info)
+credentials_dict = json.loads(GOOGLE_CREDENTIALS)
 credentials = service_account.Credentials.from_service_account_info(
     credentials_dict,
-    scopes=SCOPES
+    scopes=["https://www.googleapis.com/auth/spreadsheets"]
 )
-service = build('sheets', 'v4', credentials=credentials)
-sheet = service.spreadsheets()
+sheet_service = build('sheets', 'v4', credentials=credentials)
+sheet = sheet_service.spreadsheets()
 
-# ユーザー情報取得
-def get_user_info(username):
-    range_ = "Users!A2:D"
+# === ユーザー情報取得 ===
+def get_user_info_by_id(user_id):
     try:
-        result = sheet.values().get(spreadsheetId=SPREADSHEET_ID, range=range_).execute()
-        values = result.get("values", [])
-        for row in values:
-            if row[0] == username:
+        result = sheet.values().get(spreadsheetId=SPREADSHEET_ID, range="Users!A2:E").execute()
+        for row in result.get("values", []):
+            if row[4] == user_id:
                 return {
-                    "username": username,
+                    "username": row[0],
                     "mode": row[1],
                     "weight_col": row[2],
                     "mode_col": row[3],
+                    "user_id": row[4],
                 }
         return None
     except Exception as e:
         print(f"ユーザー情報取得エラー: {e}")
         return None
 
-# 体重記録
-def append_weight_data(username, date, weight):
-    user_info = get_user_info(username)
-    if user_info is None:
-        raise Exception(f"ユーザー情報が見つかりません: {username}")
+# === 空き列を自動で見つける ===
+def find_next_available_columns():
+    result = sheet.values().get(spreadsheetId=SPREADSHEET_ID, range="Users!B1:Z1").execute()
+    header = result.get('values', [[]])[0]
+    for i in range(1, 25, 2):
+        if (len(header) <= i or header[i] == '') and (len(header) <= i+1 or header[i+1] == ''):
+            return chr(ord('A') + i), chr(ord('A') + i + 1)
+    raise Exception("空き列がありません")
 
-    weight_col = user_info['weight_col']
-    mode_col = user_info['mode_col']
-    weights_sheet = 'Weights'
+# === ユーザー登録 ===
+def register_user(username, mode, user_id):
+    user_info = get_user_info_by_id(user_id)
+    if user_info:
+        return "すでに登録済みです。"
+    weight_col, mode_col = find_next_available_columns()
+    sheet.values().append(
+        spreadsheetId=SPREADSHEET_ID,
+        range="Users!A:E",
+        valueInputOption="USER_ENTERED",
+        insertDataOption="INSERT_ROWS",
+        body={"values": [[username, mode, weight_col, mode_col, user_id]]}
+    ).execute()
+    sheet.values().batchUpdate(
+        spreadsheetId=SPREADSHEET_ID,
+        body={"valueInputOption": "USER_ENTERED", "data": [
+            {"range": f"Weights!{weight_col}1", "values": [[f"{username}体重"]]},
+            {"range": f"Weights!{mode_col}1", "values": [[f"{username}モード"]]}
+        ]}
+    ).execute()
+    return f"{username} さんを登録しました！"
 
-    try:
-        date_col_range = f"{weights_sheet}!A2:A"
-        date_result = sheet.values().get(spreadsheetId=SPREADSHEET_ID, range=date_col_range).execute()
-        dates = [r[0] for r in date_result.get('values', []) if r]
-
-        if date in dates:
-            row_index = dates.index(date) + 2
-        else:
-            row_index = len(dates) + 2
+# === ユーザー削除 ===
+def reset_user(user_id):
+    result = sheet.values().get(spreadsheetId=SPREADSHEET_ID, range="Users!A2:E").execute()
+    values = result.get("values", [])
+    for i, row in enumerate(values):
+        if len(row) >= 5 and row[4] == user_id:
             sheet.values().update(
                 spreadsheetId=SPREADSHEET_ID,
-                range=f"{weights_sheet}!A{row_index}",
-                valueInputOption='USER_ENTERED',
-                body={'values': [[date]]}
+                range=f"Users!A{i+2}:E{i+2}",
+                valueInputOption="USER_ENTERED",
+                body={"values": [["" for _ in range(5)]]}
             ).execute()
+            return "登録をリセットしました。"
+    return "ユーザーが見つかりませんでした。"
 
-        sheet.values().update(
+# === 体重記録 ===
+def append_weight(user_id, weight, date=None):
+    user = get_user_info_by_id(user_id)
+    if not user:
+        return "登録がまだの方は登録してください。"
+    if not date:
+        date = datetime.now().strftime('%Y-%m-%d')
+
+    weight_col = user['weight_col']
+    mode_col = user['mode_col']
+    weights_sheet = 'Weights'
+
+    result = sheet.values().get(spreadsheetId=SPREADSHEET_ID, range=f"{weights_sheet}!A2:A").execute()
+    dates = [r[0] for r in result.get('values', []) if r]
+
+    if date in dates:
+        row_index = dates.index(date) + 2
+    else:
+        row_index = len(dates) + 2
+        sheet.values().append(
             spreadsheetId=SPREADSHEET_ID,
-            range=f"{weights_sheet}!{weight_col}{row_index}",
+            range=f"{weights_sheet}!A:A",
             valueInputOption='USER_ENTERED',
-            body={'values': [[weight]]}
+            insertDataOption='INSERT_ROWS',
+            body={'values': [[date]]}
         ).execute()
 
-        sheet.values().update(
-            spreadsheetId=SPREADSHEET_ID,
-            range=f"{weights_sheet}!{mode_col}{row_index}",
-            valueInputOption='USER_ENTERED',
-            body={'values': [[user_info['mode']]]}
-        ).execute()
+    sheet.values().update(
+        spreadsheetId=SPREADSHEET_ID,
+        range=f"{weights_sheet}!{weight_col}{row_index}",
+        valueInputOption='USER_ENTERED',
+        body={'values': [[weight]]}
+    ).execute()
 
-    except Exception as e:
-        print(f"体重記録エラー: {e}")
-        raise
+    sheet.values().update(
+        spreadsheetId=SPREADSHEET_ID,
+        range=f"{weights_sheet}!{mode_col}{row_index}",
+        valueInputOption='USER_ENTERED',
+        body={'values': [[user['mode']]]}
+    ).execute()
+    return f"{user['username']} さんの体重 {weight}kg を記録しました！"
 
+# === LINEコールバック ===
 @app.route("/callback", methods=['POST'])
 def callback():
-    signature = request.headers.get('X-Line-Signature')
+    signature = request.headers['X-Line-Signature']
     body = request.get_data(as_text=True)
     try:
         handler.handle(body, signature)
@@ -107,28 +147,35 @@ def callback():
         abort(400)
     return 'OK'
 
+# === メッセージ処理 ===
 @handler.add(MessageEvent, message=TextMessage)
 def handle_message(event):
     text = event.message.text.strip()
+    user_id = event.source.user_id
     parts = text.split()
 
     try:
-        if parts[0] == '体重':
-            if len(parts) == 4:
-                username = parts[1]
-                date = parts[2]
-                weight = float(parts[3])
-            elif len(parts) == 3:
-                username = parts[1]
-                date = datetime.now().strftime('%Y-%m-%d')
-                weight = float(parts[2])
-            else:
-                raise Exception("体重コマンド形式エラー")
+        if text.lower() == "ヘルプ":
+            reply = "こんにちは！\n■体重記録コマンド\n体重 65.5\n体重 2025-07-13 65.5\n登録 ユーザー名 モード\nリセット"
 
-            append_weight_data(username, date, weight)
-            reply = f"{username} さんの {date} の体重 {weight}kg を記録しました！"
+        elif parts[0] == "登録" and len(parts) == 3:
+            reply = register_user(parts[1], parts[2], user_id)
+
+        elif parts[0] == "リセット":
+            reply = reset_user(user_id)
+
+        elif parts[0] == "体重":
+            if len(parts) == 2:
+                weight = float(parts[1])
+                reply = append_weight(user_id, weight)
+            elif len(parts) == 3:
+                date = parts[1]
+                weight = float(parts[2])
+                reply = append_weight(user_id, weight, date)
+            else:
+                reply = "体重コマンドの形式が正しくありません。"
         else:
-            reply = "こんにちは！\n■体重記録コマンド\n体重 ユーザー名 YYYY-MM-DD 体重\n体重 ユーザー名 体重\n体重 体重\n例）体重 かなた 2025-07-13 65.5\n例）体重 かなた 65.5\n登録がまだの方は管理者に登録を依頼してください。"
+            reply = "コマンドが正しくありません。ヘルプと送ってください。"
     except Exception as e:
         reply = f"エラーが発生しました: {e}"
 
@@ -136,8 +183,7 @@ def handle_message(event):
 
 @app.route("/", methods=["GET"])
 def home():
-    return "LINE Bot is running!"
+    return "LINEダイエットBot起動中"
 
 if __name__ == "__main__":
-    port = int(os.getenv("PORT", 5000))
-    app.run(host="0.0.0.0", port=port)
+    app.run(debug=True)

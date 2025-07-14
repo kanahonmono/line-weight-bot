@@ -95,45 +95,62 @@ def reset_user(user_id):
     return "ユーザーが見つかりませんでした。"
 
 # === 体重記録 ===
-def append_weight(user_id, weight, date=None):
-    user = get_user_info_by_id(user_id)
-    if not user:
-        return "登録がまだの方は登録してください。"
-    if not date:
+def append_weight_data(user_id, weight, date=None):
+    user_info = get_user_info_by_id(user_id)
+    if user_info is None:
+        raise Exception(f"ユーザー情報が見つかりません: {user_id}")
+
+    weight_col = user_info["weight_col"]
+    mode_col = user_info["mode_col"]
+    weights_sheet = "Weights"
+
+    if date is None:
         date = datetime.now().strftime('%Y-%m-%d')
 
-    weight_col = user['weight_col']
-    mode_col = user['mode_col']
-    weights_sheet = 'Weights'
+    # 1行目のA列に日付一覧を取得
+    header_range = f"{weights_sheet}!A1:1"
+    result = sheet.values().get(spreadsheetId=SPREADSHEET_ID, range=header_range).execute()
+    header = result.get("values", [[]])[0]
 
-    result = sheet.values().get(spreadsheetId=SPREADSHEET_ID, range=f"{weights_sheet}!A2:A").execute()
-    dates = [r[0] for r in result.get('values', []) if r]
-
-    if date in dates:
-        row_index = dates.index(date) + 2
+    # 日付が既に存在しているか確認
+    if date in header:
+        col_index = header.index(date) + 1  # 1-based index
     else:
-        row_index = len(dates) + 2
-        sheet.values().append(
+        col_index = len(header) + 1
+        col_letter = chr(ord('A') + col_index - 1)
+        # 日付を1行目に追加
+        sheet.values().update(
             spreadsheetId=SPREADSHEET_ID,
-            range=f"{weights_sheet}!A:A",
-            valueInputOption='USER_ENTERED',
-            insertDataOption='INSERT_ROWS',
-            body={'values': [[date]]}
+            range=f"{weights_sheet}!{col_letter}1",
+            valueInputOption="USER_ENTERED",
+            body={"values": [[date]]}
         ).execute()
 
+    # 対応する列のアルファベットを求める
+    col_letter = chr(ord('A') + col_index - 1)
+
+    # ✅ 「1行目」に体重・モードを書き込む
     sheet.values().update(
         spreadsheetId=SPREADSHEET_ID,
-        range=f"{weights_sheet}!{weight_col}{row_index}",
-        valueInputOption='USER_ENTERED',
-        body={'values': [[weight]]}
+        range=f"{weights_sheet}!{col_letter}1",
+        valueInputOption="USER_ENTERED",
+        body={"values": [[date]]}
     ).execute()
 
     sheet.values().update(
         spreadsheetId=SPREADSHEET_ID,
-        range=f"{weights_sheet}!{mode_col}{row_index}",
-        valueInputOption='USER_ENTERED',
-        body={'values': [[user['mode']]]}
+        range=f"{weights_sheet}!{col_letter}2",
+        valueInputOption="USER_ENTERED",
+        body={"values": [[weight]]}
     ).execute()
+
+    sheet.values().update(
+        spreadsheetId=SPREADSHEET_ID,
+        range=f"{weights_sheet}!{col_letter}3",
+        valueInputOption="USER_ENTERED",
+        body={"values": [[user_info['mode']]]}
+    ).execute()
+
     return f"{user['username']} さんの体重 {weight}kg を記録しました！"
 
 # === LINEコールバック ===

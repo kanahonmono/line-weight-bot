@@ -193,18 +193,17 @@ def handle_message(event):
             else:
                 reply = "体重コマンドの形式が正しくありません。"
 
-       elif text.lower() == "グラフ送信":
+     elif text.lower() == "グラフ送信":
     user_info = get_user_info_by_id(user_id)
     if not user_info:
-        # 返信トークンをここで使うのはOK
         line_bot_api.reply_message(event.reply_token, TextSendMessage(text="登録されていません。先に登録してください。"))
-    else:
-        # reply_message() は使わず push_message() のみにする
-        try:
-            send_monthly_weight_graph_to_line(user_info)  # pushで画像送信
-        except Exception as e:
-            # push失敗時のみ返信で通知（この時 reply_token まだ未使用ならOK）
-            line_bot_api.reply_message(event.reply_token, TextSendMessage(text=f"グラフ送信エラー: {e}"))
+        return  # ここで終了
+
+    try:
+        send_monthly_weight_graph_to_line(user_info)  # 画像は push_message で送る
+    except Exception as e:
+        line_bot_api.reply_message(event.reply_token, TextSendMessage(text=f"グラフ送信でエラーが発生しました: {e}"))
+    return  # reply_message を2回呼ばないように return を追加
 
         else:
             reply = "コマンドが正しくありません。ヘルプと送ってください。"

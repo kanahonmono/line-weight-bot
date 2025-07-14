@@ -172,13 +172,27 @@ def handle_message(event):
 
     try:
         if text.lower() == "ヘルプ":
-            reply = "こんにちは！\n■体重記録コマンド\n体重 65.5\n体重 2025-07-13 65.5\n登録 ユーザー名 モード\nリセット\nグラフ送信"
+            reply = (
+                "こんにちは！\n"
+                "■体重記録コマンド\n"
+                "体重 65.5\n"
+                "体重 2025-07-13 65.5\n"
+                "登録 ユーザー名 モード\n"
+                "リセット\n"
+                "グラフ送信"
+            )
+            line_bot_api.reply_message(event.reply_token, TextSendMessage(text=reply))
+            return
 
         elif parts[0] == "登録" and len(parts) == 3:
             reply = register_user(parts[1], parts[2], user_id)
+            line_bot_api.reply_message(event.reply_token, TextSendMessage(text=reply))
+            return
 
         elif parts[0] == "リセット":
             reply = reset_user(user_id)
+            line_bot_api.reply_message(event.reply_token, TextSendMessage(text=reply))
+            return
 
         elif parts[0] == "体重":
             user_info = get_user_info_by_id(user_id)
@@ -192,30 +206,35 @@ def handle_message(event):
                 reply = f"{user_info['username']} さんの体重 {parts[2]}kg（{parts[1]}）を記録しました！"
             else:
                 reply = "体重コマンドの形式が正しくありません。"
+            line_bot_api.reply_message(event.reply_token, TextSendMessage(text=reply))
+            return
 
         elif text.lower() == "グラフ送信":
             user_info = get_user_info_by_id(user_id)
             if not user_info:
+                # この時だけ reply_token を使って返信する
                 line_bot_api.reply_message(event.reply_token, TextSendMessage(text="登録されていません。先に登録してください。"))
                 return
 
             try:
+                # 画像は push_message で送信（reply_token は使用しない）
                 send_monthly_weight_graph_to_line(user_info)
             except Exception as e:
-                try:
-                    line_bot_api.reply_message(event.reply_token, TextSendMessage(text=f"グラフ送信でエラーが発生しました: {e}"))
-                except:
-                    print(f"グラフ送信エラーと reply_token 失敗: {e}")
-            return  # reply_token を二重に使わないように
+                # push に失敗したらログだけ出す（reply_token は使わない）
+                print(f"グラフ送信失敗: {e}")
+            return
 
         else:
             reply = "コマンドが正しくありません。ヘルプと送ってください。"
+            line_bot_api.reply_message(event.reply_token, TextSendMessage(text=reply))
+            return
 
     except Exception as e:
         reply = f"エラーが発生しました: {e}"
-
-    # 通常のテキストメッセージ応答
-    line_bot_api.reply_message(event.reply_token, TextSendMessage(text=reply))
+        try:
+            line_bot_api.reply_message(event.reply_token, TextSendMessage(text=reply))
+        except:
+            print("reply_tokenエラー時の例外:", e)
 
 @app.route("/temp/<filename>")
 def serve_temp_image(filename):

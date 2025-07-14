@@ -2,6 +2,7 @@ from flask import Flask, request, abort
 from linebot import LineBotApi, WebhookHandler
 from linebot.exceptions import InvalidSignatureError
 from linebot.models import MessageEvent, TextMessage, TextSendMessage, ImageSendMessage
+from flask import send_file
 import os
 import json
 from google.oauth2 import service_account
@@ -210,7 +211,11 @@ def handle_message(event):
         reply = f"エラーが発生しました: {e}"
 
     line_bot_api.reply_message(event.reply_token, TextSendMessage(text=reply))
-
+@app.route("/temp/<filename>")
+def serve_temp_image(filename):
+    path = f"/tmp/{filename}"
+    return send_file(path, mimetype="image/png")
+    
 @app.route("/", methods=["GET"])
 def home():
     return "LINEダイエットBot起動中"

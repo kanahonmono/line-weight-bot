@@ -173,7 +173,7 @@ def handle_message(event):
     try:
         if text.lower() == "ヘルプ":
             reply = "こんにちは！\n■体重記録コマンド\n体重 65.5\n体重 2025-07-13 65.5\n登録 ユーザー名 モード\nリセット\nグラフ送信"
-
+        
         elif parts[0] == "登録" and len(parts) == 3:
             reply = register_user(parts[1], parts[2], user_id)
 
@@ -193,17 +193,17 @@ def handle_message(event):
             else:
                 reply = "体重コマンドの形式が正しくありません。"
 
-     elif text.lower() == "グラフ送信":
-    user_info = get_user_info_by_id(user_id)
-    if not user_info:
-        line_bot_api.reply_message(event.reply_token, TextSendMessage(text="登録されていません。先に登録してください。"))
-        return  # ここで終了
+        elif text.lower() == "グラフ送信":
+            user_info = get_user_info_by_id(user_id)
+            if not user_info:
+                line_bot_api.reply_message(event.reply_token, TextSendMessage(text="登録されていません。先に登録してください。"))
+                return  # ここで処理終了
 
-    try:
-        send_monthly_weight_graph_to_line(user_info)  # 画像は push_message で送る
-    except Exception as e:
-        line_bot_api.reply_message(event.reply_token, TextSendMessage(text=f"グラフ送信でエラーが発生しました: {e}"))
-    return  # reply_message を2回呼ばないように return を追加
+            try:
+                send_monthly_weight_graph_to_line(user_info)  # pushで送信
+            except Exception as e:
+                line_bot_api.reply_message(event.reply_token, TextSendMessage(text=f"グラフ送信でエラーが発生しました: {e}"))
+            return  # reply_token の二重使用を避けるため return
 
         else:
             reply = "コマンドが正しくありません。ヘルプと送ってください。"

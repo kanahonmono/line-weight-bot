@@ -173,7 +173,7 @@ def handle_message(event):
     try:
         if text.lower() == "ヘルプ":
             reply = "こんにちは！\n■体重記録コマンド\n体重 65.5\n体重 2025-07-13 65.5\n登録 ユーザー名 モード\nリセット\nグラフ送信"
-        
+
         elif parts[0] == "登録" and len(parts) == 3:
             reply = register_user(parts[1], parts[2], user_id)
 
@@ -197,13 +197,16 @@ def handle_message(event):
             user_info = get_user_info_by_id(user_id)
             if not user_info:
                 line_bot_api.reply_message(event.reply_token, TextSendMessage(text="登録されていません。先に登録してください。"))
-                return  # ここで処理終了
+                return
 
             try:
-                send_monthly_weight_graph_to_line(user_info)  # pushで送信
+                send_monthly_weight_graph_to_line(user_info)
             except Exception as e:
-                line_bot_api.reply_message(event.reply_token, TextSendMessage(text=f"グラフ送信でエラーが発生しました: {e}"))
-            return  # reply_token の二重使用を避けるため return
+                try:
+                    line_bot_api.reply_message(event.reply_token, TextSendMessage(text=f"グラフ送信でエラーが発生しました: {e}"))
+                except:
+                    print(f"グラフ送信エラーと reply_token 失敗: {e}")
+            return  # reply_token を二重に使わないように
 
         else:
             reply = "コマンドが正しくありません。ヘルプと送ってください。"
@@ -211,7 +214,9 @@ def handle_message(event):
     except Exception as e:
         reply = f"エラーが発生しました: {e}"
 
+    # 通常のテキストメッセージ応答
     line_bot_api.reply_message(event.reply_token, TextSendMessage(text=reply))
+
 @app.route("/temp/<filename>")
 def serve_temp_image(filename):
     path = f"/tmp/{filename}"

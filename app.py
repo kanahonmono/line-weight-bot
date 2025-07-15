@@ -138,19 +138,35 @@ def create_monthly_weight_graph(df, username):
     plt.savefig(filename)
     plt.close()
     return filename
+    
+    filename = f"static/{username}_weight_1month.png"
+    plt.savefig(filename)
+    plt.close()
+    return filename
+
+
 
 def send_monthly_weight_graph_to_line(user_info):
     df = get_last_month_weight_data(user_info['username'])
     if df is None or df.empty:
         raise Exception("直近1か月の体重データが見つかりません。")
+    
     img_path = create_monthly_weight_graph(df, user_info['username'])
+
     if not YOUR_PUBLIC_BASE_URL:
         raise Exception("YOUR_PUBLIC_BASE_URL が設定されていません")
-    img_url = f"{YOUR_PUBLIC_BASE_URL}/temp/{os.path.basename(img_path)}"
+
+    # ✅ 画像URLをstaticからに変更
+    img_url = f"{YOUR_PUBLIC_BASE_URL}/{img_path}"
+
     line_bot_api.push_message(
         user_info['user_id'],
-        ImageSendMessage(original_content_url=img_url, preview_image_url=img_url)
+        ImageSendMessage(
+            original_content_url=img_url,
+            preview_image_url=img_url
+        )
     )
+
 
 # === LINEコールバック ===
 @app.route("/callback", methods=['POST'])

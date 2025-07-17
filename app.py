@@ -190,11 +190,11 @@ def get_user_info_by_username(username):
     for row in result.get("values", []):
         if len(row) >= 1 and row[0] == username:
             return {
-                "username": row[0],
-                "mode":     row[1],
-                "weight_col": row[2],
-                "mode_col":   row[3],
-                "user_id":  row[4],
+                "username":  row[0],
+                "mode":      row[1],
+                "weight_col":row[2],
+                "mode_col":  row[3],
+                "user_id":   row[4],
             }
     return None
 
@@ -287,7 +287,6 @@ def handle_message(event):
         # ── グラフ ユーザー名 ──
         elif parts[0] == "グラフ" and len(parts) == 2:
             username = parts[1]
-            def get_user_info_by_username(username):
             user_info = get_user_info_by_username(username)
             if not user_info:
                 line_bot_api.reply_message(
@@ -296,7 +295,6 @@ def handle_message(event):
                 )
                 return
 
-            # データ取得 → グラフ作成 → URL組み立て → 返信
             try:
                 df = get_last_month_weight_data(username)
                 local_path = create_monthly_weight_graph(df, username)
@@ -317,7 +315,7 @@ def handle_message(event):
                 )
             return
 
-        # ── それ以外 ──
+        # ── その他 ──
         else:
             line_bot_api.reply_message(
                 event.reply_token,

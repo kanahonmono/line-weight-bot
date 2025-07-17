@@ -182,7 +182,6 @@ def send_monthly_weight_graph_to_line(user_info):
 
 # === LINEコールバック ===
 @app.route("/callback", methods=['POST'])
-def get_user_info_by_username(username):
     result = sheet.values().get(
         spreadsheetId=SPREADSHEET_ID,
         range="Users!A2:E"

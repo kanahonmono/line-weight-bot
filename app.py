@@ -287,6 +287,7 @@ def handle_message(event):
         # ── グラフ ユーザー名 ──
         elif parts[0] == "グラフ" and len(parts) == 2:
             username = parts[1]
+            def get_user_info_by_username(username):
             user_info = get_user_info_by_username(username)
             if not user_info:
                 line_bot_api.reply_message(

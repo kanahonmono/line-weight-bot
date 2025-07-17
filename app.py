@@ -126,19 +126,31 @@ def get_last_month_weight_data(username):
     df_1m = df[df['日付'] >= datetime.now() - timedelta(days=30)]
     return df_1m.sort_values('日付')
 
+import os
+import matplotlib.pyplot as plt
+
 def create_monthly_weight_graph(df, username):
+    # 日付ソート
+    df['日付'] = pd.to_datetime(df['日付'])
+    df = df.sort_values('日付')
+
+    # 図の描画
     plt.figure(figsize=(8, 4))
-    plt.plot(df['日付'], df['体重'].astype(float), marker='o', linestyle='-', color='blue')
+    plt.plot(df['日付'], df['体重'].astype(float),
+             marker='o', linestyle='-', color='blue')
     plt.title(f"{username} さんの直近1か月の体重推移")
     plt.xlabel("日付")
-    plt.ylabel("体重(kg)")
+    plt.ylabel("体重 (kg)")
     plt.grid(True)
+    plt.xticks(rotation=45)
     plt.tight_layout()
-    filename = f"/tmp/{username}_weight_1month.png"
-    plt.savefig(filename)
+
+    # 一時ファイル保存
+    filename = f"{username}_weight_1month.png"
+    tmp_path = os.path.join("/tmp", filename)
+    plt.savefig(tmp_path)
     plt.close()
-    return filename
-    
+    return tmp_path
     filename = f"static/{username}_weight_1month.png"
     plt.savefig(filename)
     plt.close()
@@ -146,18 +158,19 @@ def create_monthly_weight_graph(df, username):
 
 
 
+
 def send_monthly_weight_graph_to_line(user_info):
     df = get_last_month_weight_data(user_info['username'])
     if df is None or df.empty:
         raise Exception("直近1か月の体重データが見つかりません。")
-    
-    img_path = create_monthly_weight_graph(df, user_info['username'])
+
+    local_path = create_monthly_weight_graph(df, user_info['username'])
+    filename = os.path.basename(local_path)
 
     if not YOUR_PUBLIC_BASE_URL:
         raise Exception("YOUR_PUBLIC_BASE_URL が設定されていません")
 
-    # ✅ 画像URLをstaticからに変更
-    img_url = f"{YOUR_PUBLIC_BASE_URL}/{img_path}"
+    img_url = f"{YOUR_PUBLIC_BASE_URL}/temp/{filename}"
 
     line_bot_api.push_message(
         user_info['user_id'],
@@ -167,26 +180,33 @@ def send_monthly_weight_graph_to_line(user_info):
         )
     )
 
-
 # === LINEコールバック ===
 @app.route("/callback", methods=['POST'])
-def callback():
-    signature = request.headers['X-Line-Signature']
-    body = request.get_data(as_text=True)
-    try:
-        handler.handle(body, signature)
-    except InvalidSignatureError:
-        abort(400)
-    return 'OK'
+def get_user_info_by_username(username):
+    result = sheet.values().get(
+        spreadsheetId=SPREADSHEET_ID,
+        range="Users!A2:E"
+    ).execute()
+    for row in result.get("values", []):
+        if len(row) >= 1 and row[0] == username:
+            return {
+                "username": row[0],
+                "mode":     row[1],
+                "weight_col": row[2],
+                "mode_col":   row[3],
+                "user_id":  row[4],
+            }
+    return None
 
-# === メッセージ処理 ===
+# --- メッセージハンドラ ---
 @handler.add(MessageEvent, message=TextMessage)
 def handle_message(event):
-    text = event.message.text.strip()
+    text    = event.message.text.strip()
     user_id = event.source.user_id
-    parts = text.split()
+    parts   = text.split()
 
     try:
+        # ── ヘルプ ──
         if text.lower() == "ヘルプ":
             reply = (
                 "こんにちは！\n"
@@ -195,71 +215,123 @@ def handle_message(event):
                 "体重 2025-07-13 65.5\n"
                 "登録 ユーザー名 モード\n"
                 "リセット\n"
-                "グラフ送信"
+                "グラフ送信\n"
+                "グラフ ユーザー名"
             )
-            line_bot_api.reply_message(event.reply_token, TextSendMessage(text=reply))
+            line_bot_api.reply_message(
+                event.reply_token,
+                TextSendMessage(text=reply)
+            )
             return
 
+        # ── 登録 ──
         elif parts[0] == "登録" and len(parts) == 3:
             reply = register_user(parts[1], parts[2], user_id)
-            line_bot_api.reply_message(event.reply_token, TextSendMessage(text=reply))
+            line_bot_api.reply_message(
+                event.reply_token,
+                TextSendMessage(text=reply)
+            )
             return
 
+        # ── リセット ──
         elif parts[0] == "リセット":
             reply = reset_user(user_id)
-            line_bot_api.reply_message(event.reply_token, TextSendMessage(text=reply))
+            line_bot_api.reply_message(
+                event.reply_token,
+                TextSendMessage(text=reply)
+            )
             return
 
+        # ── 体重記録 ──
         elif parts[0] == "体重":
             user_info = get_user_info_by_id(user_id)
             if not user_info:
                 reply = "登録されていません。まず登録してください。"
             elif len(parts) == 2:
-                append_vertical_weight(user_info, datetime.now().strftime('%Y-%m-%d'), float(parts[1]))
+                append_vertical_weight(
+                    user_info,
+                    datetime.now().strftime('%Y-%m-%d'),
+                    float(parts[1])
+                )
                 reply = f"{user_info['username']} さんの体重 {parts[1]}kg を記録しました！"
             elif len(parts) == 3:
-                append_vertical_weight(user_info, parts[1], float(parts[2]))
+                append_vertical_weight(
+                    user_info,
+                    parts[1],
+                    float(parts[2])
+                )
                 reply = f"{user_info['username']} さんの体重 {parts[2]}kg（{parts[1]}）を記録しました！"
             else:
                 reply = "体重コマンドの形式が正しくありません。"
-            line_bot_api.reply_message(event.reply_token, TextSendMessage(text=reply))
+            line_bot_api.reply_message(
+                event.reply_token,
+                TextSendMessage(text=reply)
+            )
             return
 
+        # ── グラフ送信 (既存) ──
         elif text.lower() == "グラフ送信":
             user_info = get_user_info_by_id(user_id)
             if not user_info:
-                # この時だけ reply_token を使って返信する
-                line_bot_api.reply_message(event.reply_token, TextSendMessage(text="登録されていません。先に登録してください。"))
+                line_bot_api.reply_message(
+                    event.reply_token,
+                    TextSendMessage(text="登録されていません。先に登録してください。")
+                )
                 return
-
             try:
-                # 画像は push_message で送信（reply_token は使用しない）
                 send_monthly_weight_graph_to_line(user_info)
             except Exception as e:
-                # push に失敗したらログだけ出す（reply_token は使わない）
                 print(f"グラフ送信失敗: {e}")
             return
 
+        # ── グラフ ユーザー名 ──
+        elif parts[0] == "グラフ" and len(parts) == 2:
+            username = parts[1]
+            user_info = get_user_info_by_username(username)
+            if not user_info:
+                line_bot_api.reply_message(
+                    event.reply_token,
+                    TextSendMessage(text=f"{username} さんは未登録です。")
+                )
+                return
+
+            # データ取得 → グラフ作成 → URL組み立て → 返信
+            try:
+                df = get_last_month_weight_data(username)
+                local_path = create_monthly_weight_graph(df, username)
+                filename = os.path.basename(local_path)
+                img_url = f"{YOUR_PUBLIC_BASE_URL}/temp/{filename}"
+
+                line_bot_api.reply_message(
+                    event.reply_token,
+                    ImageSendMessage(
+                        original_content_url=img_url,
+                        preview_image_url=img_url
+                    )
+                )
+            except Exception as e:
+                line_bot_api.reply_message(
+                    event.reply_token,
+                    TextSendMessage(text=f"グラフ生成に失敗しました: {e}")
+                )
+            return
+
+        # ── それ以外 ──
         else:
-            reply = "コマンドが正しくありません。ヘルプと送ってください。"
-            line_bot_api.reply_message(event.reply_token, TextSendMessage(text=reply))
+            line_bot_api.reply_message(
+                event.reply_token,
+                TextSendMessage(text="コマンドが正しくありません。ヘルプと送ってください。")
+            )
             return
 
     except Exception as e:
-        reply = f"エラーが発生しました: {e}"
-        try:
-            line_bot_api.reply_message(event.reply_token, TextSendMessage(text=reply))
-        except:
-            print("reply_tokenエラー時の例外:", e)
+        line_bot_api.reply_message(
+            event.reply_token,
+            TextSendMessage(text=f"エラーが発生しました: {e}")
+        )
 
+# --- 画像配信用ルート ---
 @app.route("/temp/<filename>")
 def serve_temp_image(filename):
-    path = f"/tmp/{filename}"
+    path = os.path.join("/tmp", filename)
     return send_file(path, mimetype="image/png")
-    
-@app.route("/", methods=["GET"])
-def home():
-    return "LINEダイエットBot起動中"
-
-if __name__ == "__main__":
-    app.run(debug=True)

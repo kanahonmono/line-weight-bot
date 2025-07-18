@@ -251,12 +251,7 @@ def handle_message(event):
     except Exception as e:
         print(f"エラー: {e}")
         line_bot_api.reply_message(event.reply_token, TextSendMessage(text=f"エラーが発生しました: {e}"))
-        else:
-            reply = "コマンドが正しくありません。ヘルプと送ってください。"
-        line_bot_api.reply_message(event.reply_token, TextSendMessage(text=reply))
-    except Exception as e:
-        print(f"エラー: {e}")
-        line_bot_api.reply_message(event.reply_token, TextSendMessage(text=f"エラーが発生しました: {e}"))
+    
 
 # === ファイルリスト ===
 @app.route("/list_graphs")

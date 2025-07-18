@@ -182,20 +182,17 @@ def send_monthly_weight_graph_to_line(user_info):
 
 # === LINEコールバック ===
 @app.route("/callback", methods=['POST'])
-    result = sheet.values().get(
-        spreadsheetId=SPREADSHEET_ID,
-        range="Users!A2:E"
-    ).execute()
-    for row in result.get("values", []):
-        if len(row) >= 1 and row[0] == username:
-            return {
-                "username":  row[0],
-                "mode":      row[1],
-                "weight_col":row[2],
-                "mode_col":  row[3],
-                "user_id":   row[4],
-            }
-    return None
+def callback():
+    signature = request.headers['X-Line-Signature']
+    body = request.get_data(as_text=True)
+
+    try:
+        handler.handle(body, signature)
+    except InvalidSignatureError:
+        abort(400)
+
+    return 'OK'
+
 
 # --- メッセージハンドラ ---
 @handler.add(MessageEvent, message=TextMessage)

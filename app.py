@@ -34,7 +34,7 @@ credentials = service_account.Credentials.from_service_account_info(
 sheet_service = build('sheets', 'v4', credentials=credentials)
 sheet = sheet_service.spreadsheets()
 
-# === ユーザー取得 ===
+# === ユーザー情報取得 ===
 def get_user_info_by_id(user_id):
     try:
         result = sheet.values().get(spreadsheetId=SPREADSHEET_ID, range="Users!A2:E").execute()
@@ -47,10 +47,9 @@ def get_user_info_by_id(user_id):
                     "mode_col": row[3],
                     "user_id": row[4],
                 }
-        return None
     except Exception as e:
         print(f"ユーザー情報取得エラー: {e}")
-        return None
+    return None
 
 def get_user_info_by_username(username):
     try:
@@ -64,12 +63,11 @@ def get_user_info_by_username(username):
                     "mode_col": row[3] if len(row) > 3 else "",
                     "user_id": row[4] if len(row) > 4 else "",
                 }
-        return None
     except Exception as e:
         print(f"ユーザー名による情報取得エラー: {e}")
-        return None
+    return None
 
-# === 登録・削除・記録 ===
+# === ユーザー登録・リセット・記録 ===
 def register_user(username, mode, user_id):
     if get_user_info_by_id(user_id):
         return "すでに登録済みです。"
@@ -82,7 +80,6 @@ def register_user(username, mode, user_id):
             break
     else:
         raise Exception("空き列がありません")
-
     sheet.values().append(
         spreadsheetId=SPREADSHEET_ID,
         range="Users!A:E",
@@ -114,7 +111,7 @@ def append_vertical_weight(user_info, date, weight):
         body={"values": [[user_info["username"], date, weight, user_info["mode"]]]}
     ).execute()
 
-# === グラフ処理 ===
+# === グラフ生成 ===
 def get_last_month_weight_data(username):
     result = sheet.values().get(spreadsheetId=SPREADSHEET_ID, range="Weights!A2:D").execute()
     df = pd.DataFrame(result.get("values", []), columns=["ユーザー名", "日付", "体重", "モード"])
@@ -135,18 +132,13 @@ def create_monthly_weight_graph(df, username):
     plt.xticks(rotation=45)
     plt.tight_layout()
 
-    # 保存先
     static_dir = os.path.join(app.root_path, "static", "graphs")
     os.makedirs(static_dir, exist_ok=True)
     safe_username = slugify(username)
     path = os.path.join(static_dir, f"{safe_username}_weight_1month.jpg")
-
-    # 保存（JPEGで、軽量化）
     plt.savefig(path, dpi=100, format="jpg")
     plt.close()
-    print(f"グラフ画像を保存しました: {path}")
     return path
-
 
 def send_monthly_weight_graph_to_line(user_info):
     df = get_last_month_weight_data(user_info['username'])
@@ -161,9 +153,8 @@ def send_monthly_weight_graph_to_line(user_info):
         original_content_url=img_url,
         preview_image_url=img_url
     ))
-    os.remove(local_path)
 
-# === LINE webhook ===
+# === LINE Webhook ===
 @app.route("/callback", methods=['POST'])
 def callback():
     signature = request.headers['X-Line-Signature']
@@ -174,7 +165,7 @@ def callback():
         abort(400)
     return 'OK'
 
-# === メッセージ処理 ===
+# === メッセージハンドラ ===
 @handler.add(MessageEvent, message=TextMessage)
 def handle_message(event):
     text = event.message.text.strip()
@@ -221,7 +212,6 @@ def handle_message(event):
                 line_bot_api.reply_message(event.reply_token, TextSendMessage(text="登録されていません。先に登録してください。"))
             else:
                 send_monthly_weight_graph_to_line(user_info)
-                # push_message後は返信しないが、Webhookは正常終了を返すためreturnで終わる
             return
 
         elif parts[0] == "グラフ" and len(parts) == 2:
@@ -241,8 +231,6 @@ def handle_message(event):
                         original_content_url=img_url,
                         preview_image_url=img_url
                     ))
-                    # ここは返信後に削除してもいいですが、LINEが画像取得前に削除しないよう注意
-                    # os.remove(local_path)
                     return
 
         else:
@@ -251,22 +239,24 @@ def handle_message(event):
     except Exception as e:
         print(f"エラー: {e}")
         line_bot_api.reply_message(event.reply_token, TextSendMessage(text=f"エラーが発生しました: {e}"))
-    
 
-# === ファイルリスト ===
+# === ファイルリスト表示用（デバッグ） ===
 @app.route("/list_graphs")
 def list_graphs():
     static_dir = os.path.join(app.root_path, "static", "graphs")
     try:
         files = os.listdir(static_dir)
+        return "<br>".join(files)
     except Exception as e:
         return f"エラー: {e}"
-    return "<br>".join(files)
 
-# === 画像配信用 ===
+# === 静的ファイルを送る ===
 @app.route("/static/graphs/<filename>")
 def serve_image(filename):
     filepath = os.path.join(app.root_path, "static", "graphs", filename)
+    if not os.path.isfile(filepath):
+        return "ファイルが存在しません", 404
     ext = os.path.splitext(filename)[1].lower()
-    mime = "image/jpeg" if ext == ".jpg" else "image/png"
+    mime = "image/jpeg" if ext in [".jpg", ".jpeg"] else "image/png"
     return send_file(filepath, mimetype=mime)
+

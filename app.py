@@ -258,8 +258,8 @@ def handle_message(event):
             print(f"返信エラー無視: {reply_error}")
 
 # === ファイルリスト表示用（デバッグ） ===
-@app.route("/list_graphs")
-def list_graphs():
+@app.route("/callback", methods=['POST'])
+def callback():
     static_dir = os.path.join(app.root_path, "static", "graphs")
     try:
         files = os.listdir(static_dir)

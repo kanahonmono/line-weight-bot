@@ -178,6 +178,7 @@ def handle_message(event):
     text = event.message.text.strip()
     user_id = event.source.user_id
     parts = text.split()
+    
     try:
         if text.lower() == "ヘルプ":
             reply = (
@@ -220,21 +221,15 @@ def handle_message(event):
                     event.reply_token, TextSendMessage(text="登録されていません。先に登録してください。")
                 )
             else:
-                df = get_last_month_weight_data(user_info['username'])
-                if df is None or df.empty:
-                    line_bot_api.reply_message(
-                        event.reply_token, TextSendMessage(text="直近1か月の体重データが見つかりません。")
-                    )
-                else:
-                    local_path = create_monthly_weight_graph(df, user_info['username'])
-                    safe_username = slugify(user_info['username'])
-                    filename = f"{safe_username}_weight_1month.jpg"
-                    img_url = f"{YOUR_PUBLIC_BASE_URL.rstrip('/')}/static/graphs/{filename}"
-                    print(f"[LOG] グラフ送信URL: {img_url}")
-                    line_bot_api.reply_message(
-                        event.reply_token,
-                        ImageSendMessage(original_content_url=img_url, preview_image_url=img_url)
-                    )
+                # 即時返信（reply_token 有効なうちに）
+                line_bot_api.reply_message(
+                    event.reply_token, TextSendMessage(text="グラフを作成中です。少々お待ちください。")
+                )
+                # 非同期っぽく push_message で送る
+                try:
+                    send_monthly_weight_graph_to_line(user_info)
+                except Exception as e:
+                    print(f"[ERROR] グラフ送信中のエラー: {e}")
 
     except Exception as e:
         print(f"エラー: {e}")

@@ -212,8 +212,7 @@ def handle_message(event):
                 line_bot_api.reply_message(event.reply_token, TextSendMessage(text=f"{user_info['username']} さんの体重 {parts[2]}kg（{parts[1]}）を記録しました！"))
             else:
                 line_bot_api.reply_message(event.reply_token, TextSendMessage(text="体重コマンドの形式が正しくありません。"))
-
-          elif text.lower() == "グラフ送信":
+            elif text.lower() == "グラフ送信":
         user_info = get_user_info_by_id(user_id)
         if not user_info:
             line_bot_api.reply_message(

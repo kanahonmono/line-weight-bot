@@ -34,7 +34,7 @@ credentials = service_account.Credentials.from_service_account_info(
 sheet_service = build('sheets', 'v4', credentials=credentials)
 sheet = sheet_service.spreadsheets()
 
-# === ユーザー取得（user_id） ===
+# === ユーザー取得 ===
 def get_user_info_by_id(user_id):
     try:
         result = sheet.values().get(spreadsheetId=SPREADSHEET_ID, range="Users!A2:E").execute()
@@ -52,7 +52,6 @@ def get_user_info_by_id(user_id):
         print(f"ユーザー情報取得エラー: {e}")
         return None
 
-# === ユーザー取得（username） ===
 def get_user_info_by_username(username):
     try:
         result = sheet.values().get(spreadsheetId=SPREADSHEET_ID, range="Users!A2:E").execute()
@@ -138,8 +137,8 @@ def create_monthly_weight_graph(df, username):
     static_dir = os.path.join(app.root_path, "static", "graphs")
     os.makedirs(static_dir, exist_ok=True)
     safe_username = slugify(username)
-    path = os.path.join(static_dir, f"{safe_username}_weight_1month.png")
-    plt.savefig(path)
+    path = os.path.join(static_dir, f"{safe_username}_weight_1month.jpg")
+    plt.savefig(path, format='jpeg', dpi=100)
     plt.close()
     print(f"グラフ画像を保存しました: {path}")
     return path
@@ -157,6 +156,7 @@ def send_monthly_weight_graph_to_line(user_info):
         original_content_url=img_url,
         preview_image_url=img_url
     ))
+    os.remove(local_path)
 
 # === LINE webhook ===
 @app.route("/callback", methods=['POST'])
@@ -221,12 +221,13 @@ def handle_message(event):
                 else:
                     local_path = create_monthly_weight_graph(df, parts[1])
                     safe_username = slugify(parts[1])
-                    filename = f"{safe_username}_weight_1month.png"
+                    filename = f"{safe_username}_weight_1month.jpg"
                     img_url = f"{YOUR_PUBLIC_BASE_URL}/static/graphs/{filename}"
                     line_bot_api.reply_message(event.reply_token, ImageSendMessage(
                         original_content_url=img_url,
                         preview_image_url=img_url
                     ))
+                    os.remove(local_path)
                     return
         else:
             reply = "コマンドが正しくありません。ヘルプと送ってください。"
@@ -234,6 +235,8 @@ def handle_message(event):
     except Exception as e:
         print(f"エラー: {e}")
         line_bot_api.reply_message(event.reply_token, TextSendMessage(text=f"エラーが発生しました: {e}"))
+
+# === ファイルリスト ===
 @app.route("/list_graphs")
 def list_graphs():
     static_dir = os.path.join(app.root_path, "static", "graphs")
@@ -242,7 +245,8 @@ def list_graphs():
     except Exception as e:
         return f"エラー: {e}"
     return "<br>".join(files)
+
 # === 画像配信用 ===
 @app.route("/static/graphs/<filename>")
 def serve_image(filename):
-    return send_file(os.path.join(app.root_path, "static", "graphs", filename), mimetype="image/png")
+    return send_file(os.path.join(app.root_path, "static", "graphs", filename), mimetype="image/jpeg")

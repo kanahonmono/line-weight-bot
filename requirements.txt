@@ -8,4 +8,4 @@ openai
 pandas
 matplotlib
 python-slugify
-upgrade openai
+openai>=1.14.2

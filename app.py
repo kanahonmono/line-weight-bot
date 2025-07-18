@@ -163,22 +163,18 @@ def send_monthly_weight_graph_to_line(user_info):
     ))
 
 # === LINE Webhook ===
-@app.route("/callback", methods=['POST'])
-def callback():
-    signature = request.headers['X-Line-Signature']
-    body = request.get_data(as_text=True)
-    try:
-        handler.handle(body, signature)
-    except InvalidSignatureError:
-        abort(400)
-    return 'OK'
-
-# === メッセージハンドラ ===
 @handler.add(MessageEvent, message=TextMessage)
 def handle_message(event):
     text = event.message.text.strip()
     user_id = event.source.user_id
     parts = text.split()
+
+    # Bot自身のメッセージに反応しないためのID（環境変数等で設定）
+    BOT_USER_ID = os.getenv("LINE_BOT_USER_ID")
+    if user_id == BOT_USER_ID:
+        # Botのメッセージは無視
+        return
+
     try:
         if text.lower() == "ヘルプ":
             reply = (
@@ -192,61 +188,74 @@ def handle_message(event):
                 "グラフ ユーザー名"
             )
             line_bot_api.reply_message(event.reply_token, TextSendMessage(text=reply))
+            return
 
         elif parts[0] == "登録" and len(parts) == 3:
             reply = register_user(parts[1], parts[2], user_id)
             line_bot_api.reply_message(event.reply_token, TextSendMessage(text=reply))
+            return
 
         elif parts[0] == "リセット":
             reply = reset_user(user_id)
             line_bot_api.reply_message(event.reply_token, TextSendMessage(text=reply))
+            return
 
         elif parts[0] == "体重":
             user_info = get_user_info_by_id(user_id)
             if not user_info:
                 line_bot_api.reply_message(event.reply_token, TextSendMessage(text="登録されていません。まず登録してください。"))
-            elif len(parts) == 2:
+                return
+            if len(parts) == 2:
                 append_vertical_weight(user_info, datetime.now().strftime('%Y-%m-%d'), float(parts[1]))
                 line_bot_api.reply_message(event.reply_token, TextSendMessage(text=f"{user_info['username']} さんの体重 {parts[1]}kg を記録しました！"))
+                return
             elif len(parts) == 3:
                 append_vertical_weight(user_info, parts[1], float(parts[2]))
                 line_bot_api.reply_message(event.reply_token, TextSendMessage(text=f"{user_info['username']} さんの体重 {parts[2]}kg（{parts[1]}）を記録しました！"))
+                return
             else:
                 line_bot_api.reply_message(event.reply_token, TextSendMessage(text="体重コマンドの形式が正しくありません。"))
+                return
 
         elif text.lower() == "グラフ送信":
             user_info = get_user_info_by_id(user_id)
             if not user_info:
                 line_bot_api.reply_message(event.reply_token, TextSendMessage(text="登録されていません。先に登録してください。"))
-            else:
-                send_monthly_weight_graph_to_line(user_info)
-            return
+                return
+            # send_monthly_weight_graph_to_lineはpush_messageで送る想定
+            send_monthly_weight_graph_to_line(user_info)
+            return  # 返信済みなのでreturn必須
 
         elif parts[0] == "グラフ" and len(parts) == 2:
             user_info = get_user_info_by_username(parts[1])
             if not user_info:
                 line_bot_api.reply_message(event.reply_token, TextSendMessage(text=f"{parts[1]} さんは未登録です。"))
-            else:
-                df = get_last_month_weight_data(parts[1])
-                if df is None or df.empty:
-                    line_bot_api.reply_message(event.reply_token, TextSendMessage(text="データがありません。"))
-                else:
-                    local_path = create_monthly_weight_graph(df, parts[1])
-                    safe_username = slugify(parts[1])
-                    filename = f"{safe_username}_weight_1month.jpg"
-                    img_url = f"{YOUR_PUBLIC_BASE_URL.rstrip('/')}/static/graphs/{filename}"
-                    line_bot_api.reply_message(event.reply_token, ImageSendMessage(
-                        original_content_url=img_url,
-                        preview_image_url=img_url
-                    ))
-                    return
+                return
+            df = get_last_month_weight_data(parts[1])
+            if df is None or df.empty:
+                line_bot_api.reply_message(event.reply_token, TextSendMessage(text="データがありません。"))
+                return
+            local_path = create_monthly_weight_graph(df, parts[1])
+            safe_username = slugify(parts[1])
+            filename = f"{safe_username}_weight_1month.jpg"
+            img_url = f"{YOUR_PUBLIC_BASE_URL.rstrip('/')}/static/graphs/{filename}"
+            line_bot_api.reply_message(event.reply_token, ImageSendMessage(
+                original_content_url=img_url,
+                preview_image_url=img_url
+            ))
+            return
 
         else:
             line_bot_api.reply_message(event.reply_token, TextSendMessage(text="コマンドが正しくありません。ヘルプと送ってください。"))
+            return
 
     except Exception as e:
         print(f"エラー: {e}")
-        line_bot_api.reply_message(event.reply_token, TextSendMessage(text=f"エラーが発生しました: {e}"))
+        # 例外返信は重複返信防止のためtry-exceptでラップ
+        try:
+            line_bot_api.reply_message(event.reply_token, TextSendMessage(text=f"エラーが発生しました: {e}"))
+        except Exception as reply_error:
+            print(f"返信エラー無視: {reply_error}")
 
 # === ファイルリスト表示用（デバッグ） ===
 @app.route("/list_graphs")

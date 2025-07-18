@@ -182,19 +182,14 @@ def send_monthly_weight_graph_to_line(user_info):
     )
 
 # === LINEコールバック ===
-@app.route('/static/graphs/<filename>')
-def serve_graph_image(filename):
-    static_dir = os.path.join(app.root_path, "static", "graphs")
-    return send_from_directory(static_dir, filename)
+@app.route("/callback", methods=['POST'])
 def callback():
     signature = request.headers['X-Line-Signature']
     body = request.get_data(as_text=True)
-
     try:
         handler.handle(body, signature)
     except InvalidSignatureError:
         abort(400)
-
     return 'OK'
 
 

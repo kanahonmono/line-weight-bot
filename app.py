@@ -266,3 +266,6 @@ def serve_image(filename):
     ext = os.path.splitext(filename)[1].lower()
     mime = "image/jpeg" if ext in [".jpg", ".jpeg"] else "image/png"
     return send_file(filepath, mimetype=mime)
+@app.route("/")
+def index():
+    return "Bot is running!"

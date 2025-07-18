@@ -171,6 +171,8 @@ def send_monthly_weight_graph_to_line(user_info):
     ))
 
 # === GPT呼び出し関数 ===
+openai.api_key = os.getenv("OPENAI_API_KEY")  # ちゃんとAPIキーが入ってるか確認
+
 def ask_gpt(user_text, mode):
     system_prompt = MODE_PROMPTS.get(mode, "あなたは親切なダイエットコーチです。")
     messages = [
@@ -179,7 +181,7 @@ def ask_gpt(user_text, mode):
     ]
     try:
         response = openai.ChatCompletion.create(
-            model="gpt-3.5-turbo",  # ここを試しに変える
+            model="gpt-3.5-turbo",
             messages=messages,
             temperature=0.7,
             max_tokens=500,
@@ -188,7 +190,7 @@ def ask_gpt(user_text, mode):
         reply_text = response.choices[0].message.content.strip()
         return reply_text
     except Exception as e:
-        print(f"OpenAI APIエラー: {e}")
+        print(f"OpenAI APIエラー: {e}")  # ← ここでエラー詳細確認
         return "すみません、応答を取得できませんでした。"
 
 # === LINE Webhook ===

@@ -231,7 +231,14 @@ def handle_message(event):
     except Exception as e:
         print(f"エラー: {e}")
         line_bot_api.reply_message(event.reply_token, TextSendMessage(text=f"エラーが発生しました: {e}"))
-
+@app.route("/list_graphs")
+def list_graphs():
+    static_dir = os.path.join(app.root_path, "static", "graphs")
+    try:
+        files = os.listdir(static_dir)
+    except Exception as e:
+        return f"エラー: {e}"
+    return "<br>".join(files)
 # === 画像配信用 ===
 @app.route("/static/graphs/<filename>")
 def serve_image(filename):

@@ -139,6 +139,7 @@ def create_monthly_weight_graph(df, username):
     path = os.path.join(static_dir, f"{username}_weight_1month.png")
     plt.savefig(path)
     plt.close()
+    print(f"グラフ画像を保存しました: {path}")
     return path
 
 def send_monthly_weight_graph_to_line(user_info):

@@ -128,20 +128,25 @@ def create_monthly_weight_graph(df, username):
     df['日付'] = pd.to_datetime(df['日付'])
     plt.figure(figsize=(8, 4))
     plt.plot(df['日付'], df['体重'].astype(float), marker='o', linestyle='-', color='blue')
-    plt.title(f"{username} さんの直近1か月の体重推移")
-    plt.xlabel("日付")
-    plt.ylabel("体重 (kg)")
+    plt.title(f"{username} さんの直近1か月の体重推移", fontname="IPAexGothic")
+    plt.xlabel("日付", fontname="IPAexGothic")
+    plt.ylabel("体重 (kg)", fontname="IPAexGothic")
     plt.grid(True)
     plt.xticks(rotation=45)
     plt.tight_layout()
+
+    # 保存先
     static_dir = os.path.join(app.root_path, "static", "graphs")
     os.makedirs(static_dir, exist_ok=True)
     safe_username = slugify(username)
     path = os.path.join(static_dir, f"{safe_username}_weight_1month.jpg")
-    plt.savefig(path, format='jpeg', dpi=100)
+
+    # 保存（JPEGで、軽量化）
+    plt.savefig(path, dpi=100, format="jpg")
     plt.close()
     print(f"グラフ画像を保存しました: {path}")
     return path
+
 
 def send_monthly_weight_graph_to_line(user_info):
     df = get_last_month_weight_data(user_info['username'])

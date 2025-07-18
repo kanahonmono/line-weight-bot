@@ -179,7 +179,7 @@ def ask_gpt(user_text, mode):
     ]
     try:
         response = openai.ChatCompletion.create(
-            model="gpt-4o-mini",
+            model="gpt-3.5-turbo",  # ここを試しに変える
             messages=messages,
             temperature=0.7,
             max_tokens=500,

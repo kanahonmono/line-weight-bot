@@ -36,7 +36,7 @@ sheet_service = build('sheets', 'v4', credentials=credentials)
 sheet = sheet_service.spreadsheets()
 
 # === ユーザー情報取得 ===
-def get_user_info_by_id(user_id):
+def get_user_info_by_username(username):
     try:
         result = sheet.values().get(spreadsheetId=SPREADSHEET_ID, range="Users!A2:E").execute()
         for row in result.get("values", []):

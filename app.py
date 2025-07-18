@@ -254,4 +254,7 @@ def list_graphs():
 # === 画像配信用 ===
 @app.route("/static/graphs/<filename>")
 def serve_image(filename):
-    return send_file(os.path.join(app.root_path, "static", "graphs", filename), mimetype="image/jpeg")
+    filepath = os.path.join(app.root_path, "static", "graphs", filename)
+    ext = os.path.splitext(filename)[1].lower()
+    mime = "image/jpeg" if ext == ".jpg" else "image/png"
+    return send_file(filepath, mimetype=mime)

@@ -213,33 +213,30 @@ def handle_message(event):
             else:
                 line_bot_api.reply_message(event.reply_token, TextSendMessage(text="体重コマンドの形式が正しくありません。"))
 
-        elif text.lower() == "グラフ送信":
-            user_info = get_user_info_by_id(user_id)
-            if not user_info:
-                line_bot_api.reply_message(event.reply_token, TextSendMessage(text="登録されていません。先に登録してください。"))
-            else:
-                send_monthly_weight_graph_to_line(user_info)
-            return
+       elif text.lower() == "グラフ送信":
+    user_info = get_user_info_by_id(user_id)
+    if not user_info:
+        line_bot_api.reply_message(
+            event.reply_token, TextSendMessage(text="登録されていません。先に登録してください。")
+        )
+    else:
+        df = get_last_month_weight_data(user_info['username'])
+        if df is None or df.empty:
+            line_bot_api.reply_message(
+                event.reply_token, TextSendMessage(text="直近1か月の体重データが見つかりません。")
+            )
+        else:
+            local_path = create_monthly_weight_graph(df, user_info['username'])
+            safe_username = slugify(user_info['username'])
+            filename = f"{safe_username}_weight_1month.jpg"
+            img_url = f"{YOUR_PUBLIC_BASE_URL.rstrip('/')}/static/graphs/{filename}"
+            print(f"[LOG] グラフ送信URL: {img_url}")
+            line_bot_api.reply_message(
+                event.reply_token,
+                ImageSendMessage(original_content_url=img_url, preview_image_url=img_url)
+            )
+    return
 
-        elif parts[0] == "グラフ" and len(parts) == 2:
-            user_info = get_user_info_by_username(parts[1])
-            if not user_info:
-                line_bot_api.reply_message(event.reply_token, TextSendMessage(text=f"{parts[1]} さんは未登録です。"))
-            else:
-                df = get_last_month_weight_data(parts[1])
-                if df is None or df.empty:
-                    line_bot_api.reply_message(event.reply_token, TextSendMessage(text="データがありません。"))
-                else:
-                    local_path = create_monthly_weight_graph(df, parts[1])
-                    safe_username = slugify(parts[1])
-                    filename = f"{safe_username}_weight_1month.jpg"
-                    img_url = f"{YOUR_PUBLIC_BASE_URL.rstrip('/')}/static/graphs/{filename}"
-                    print(f"[LOG] 送信画像URL: {img_url}")
-                    line_bot_api.reply_message(event.reply_token, ImageSendMessage(
-                        original_content_url=img_url,
-                        preview_image_url=img_url
-                    ))
-                    return
 
         else:
             line_bot_api.reply_message(event.reply_token, TextSendMessage(text="コマンドが正しくありません。ヘルプと送ってください。"))

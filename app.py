@@ -11,6 +11,7 @@ from datetime import datetime, timedelta
 import pandas as pd
 import matplotlib.pyplot as plt
 import matplotlib.font_manager as fm  # フォント管理用
+import openai
 
 app = Flask(__name__)
 
@@ -20,8 +21,9 @@ LINE_CHANNEL_ACCESS_TOKEN = os.getenv("LINE_CHANNEL_ACCESS_TOKEN")
 GOOGLE_CREDENTIALS = os.getenv("GOOGLE_APPLICATION_CREDENTIALS_JSON")
 SPREADSHEET_ID = "1mmdxzloT6rOmx7SiVT4X2PtmtcsBxivcHSoMUvjDCqc"
 YOUR_PUBLIC_BASE_URL = os.getenv("YOUR_PUBLIC_BASE_URL")
+openai.api_key = os.getenv("OPENAI_API_KEY")
 
-if not (LINE_CHANNEL_SECRET and LINE_CHANNEL_ACCESS_TOKEN and GOOGLE_CREDENTIALS):
+if not (LINE_CHANNEL_SECRET and LINE_CHANNEL_ACCESS_TOKEN and GOOGLE_CREDENTIALS and openai.api_key):
     raise Exception("環境変数が足りません")
 
 line_bot_api = LineBotApi(LINE_CHANNEL_ACCESS_TOKEN)
@@ -40,6 +42,13 @@ font_path = os.path.join(app.root_path, "fonts", "ipaexg.ttf")
 if not os.path.exists(font_path):
     raise Exception(f"フォントファイルがありません: {font_path}")
 jp_font = fm.FontProperties(fname=font_path)
+
+# === モード別GPTシステムプロンプト ===
+MODE_PROMPTS = {
+    "筋トレモード": "あなたは筋トレに詳しい厳しめのパーソナルトレーナーです。効率的に筋肉をつけるための指導を行ってください。",
+    "親モード": "あなたは初心者に優しく寄り添う親向けのやさしいダイエットコーチです。無理なく続けられるように励ましてください。",
+    # 必要に応じて追加可能
+}
 
 # === ユーザー情報取得 ===
 def get_user_info_by_id(user_id):
@@ -161,6 +170,27 @@ def send_monthly_weight_graph_to_line(user_info):
         preview_image_url=img_url
     ))
 
+# === GPT呼び出し関数 ===
+def ask_gpt(user_text, mode):
+    system_prompt = MODE_PROMPTS.get(mode, "あなたは親切なダイエットコーチです。")
+    messages = [
+        {"role": "system", "content": system_prompt},
+        {"role": "user", "content": user_text},
+    ]
+    try:
+        response = openai.ChatCompletion.create(
+            model="gpt-4o-mini",
+            messages=messages,
+            temperature=0.7,
+            max_tokens=500,
+            n=1,
+        )
+        reply_text = response.choices[0].message.content.strip()
+        return reply_text
+    except Exception as e:
+        print(f"OpenAI APIエラー: {e}")
+        return "すみません、応答を取得できませんでした。"
+
 # === LINE Webhook ===
 @app.route("/callback", methods=['POST'])
 def callback():
@@ -189,7 +219,8 @@ def handle_message(event):
                 "登録 ユーザー名 モード\n"
                 "リセット\n"
                 "グラフ送信\n"
-                "グラフ ユーザー名"
+                "グラフ ユーザー名\n"
+                "その他メッセージはGPTが対応します。"
             )
             line_bot_api.reply_message(event.reply_token, TextSendMessage(text=reply))
 
@@ -231,9 +262,18 @@ def handle_message(event):
                 except Exception as e:
                     print(f"[ERROR] グラフ送信中のエラー: {e}")
 
+        else:
+            # それ以外はGPTに任せる
+            user_info = get_user_info_by_id(user_id)
+            if not user_info:
+                reply_text = "登録されていません。まず「登録 ユーザー名 モード」で登録してください。"
+            else:
+                mode = user_info.get("mode", "親モード")
+                reply_text = ask_gpt(text, mode)
+            line_bot_api.reply_message(event.reply_token, TextSendMessage(text=reply_text))
+
     except Exception as e:
         print(f"エラー: {e}")
-       
 
 # === ファイルリスト表示用（デバッグ） ===
 @app.route("/list_graphs")

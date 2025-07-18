@@ -156,93 +156,106 @@ def send_monthly_weight_graph_to_line(user_info):
     if not YOUR_PUBLIC_BASE_URL:
         raise Exception("YOUR_PUBLIC_BASE_URL が設定されていません")
     img_url = f"{YOUR_PUBLIC_BASE_URL.rstrip('/')}/static/graphs/{filename}"
-    print(f"[LOG] 送信画像URL: {img_url}")
     line_bot_api.push_message(user_info['user_id'], ImageSendMessage(
         original_content_url=img_url,
         preview_image_url=img_url
     ))
 
 # === LINE Webhook ===
-@handler.add(MessageEvent, message=TextMessage)
-def handle_message(event):
-    text = event.message.text.strip()
-    user_id = event.source.user_id
-
-    if text == "グラフ":
-        try:
-            # データ取得
-            result = sheet.values().get(spreadsheetId=SPREADSHEET_ID, range=RANGE_NAME).execute()
-            rows = result.get('values', [])
-
-            # データFrame化
-            df = pd.DataFrame(rows[1:], columns=rows[0])  # 1行目はヘッダー
-            df = df[df['名前'] == user_id]
-            df['日付'] = pd.to_datetime(df['日付'], errors='coerce')
-            df['体重'] = pd.to_numeric(df['体重'], errors='coerce')
-            df = df.dropna().sort_values('日付')
-
-            if df.empty:
-                line_bot_api.reply_message(
-                    event.reply_token,
-                    TextSendMessage(text="まだ体重データがありません。")
-                )
-                return
-
-            # グラフ作成
-            plt.figure(figsize=(6, 4))
-            plt.plot(df['日付'], df['体重'], marker='o', color='blue', label='体重(kg)')
-            plt.xlabel('日付')
-            plt.ylabel('体重 (kg)')
-            plt.title('体重推移グラフ')
-            plt.xticks(rotation=45)
-            plt.grid(True)
-            plt.legend()
-            plt.tight_layout()
-
-            # 画像保存
-            img_buf = io.BytesIO()
-            plt.savefig(img_buf, format='png')
-            img_buf.seek(0)
-            plt.close()
-
-            # 一時ファイル保存
-            image_path = f"/tmp/weight_{user_id}.png"
-            with open(image_path, 'wb') as f:
-                f.write(img_buf.getbuffer())
-
-            # LINEに画像送信
-            image_url = f"https://your-server-url.com/static/weight_{user_id}.png"  # デプロイ時に修正
-            line_bot_api.reply_message(
-                event.reply_token,
-                ImageSendMessage(
-                    original_content_url=image_url,
-                    preview_image_url=image_url
-                )
-            )
-
-        except Exception as e:
-            line_bot_api.reply_message(
-                event.reply_token,
-                TextSendMessage(text=f"グラフ送信時にエラーが発生しました: {str(e)}")
-            )
-
-    else:
-        # デフォルト応答
-        line_bot_api.reply_message(
-            event.reply_token,
-            TextSendMessage(text="こんにちは！「グラフ」と送ると体重推移を確認できます。")
-        )
-# === ファイルリスト表示用（デバッグ） ===
 @app.route("/callback", methods=['POST'])
 def callback():
     signature = request.headers['X-Line-Signature']
     body = request.get_data(as_text=True)
-
     try:
         handler.handle(body, signature)
     except InvalidSignatureError:
         abort(400)
     return 'OK'
+
+# === メッセージハンドラ ===
+@handler.add(MessageEvent, message=TextMessage)
+def handle_message(event):
+    text = event.message.text.strip()
+    user_id = event.source.user_id
+    parts = text.split()
+    try:
+        if text.lower() == "ヘルプ":
+            reply = (
+                "こんにちは！\n"
+                "■体重記録コマンド\n"
+                "体重 65.5\n"
+                "体重 2025-07-13 65.5\n"
+                "登録 ユーザー名 モード\n"
+                "リセット\n"
+                "グラフ送信\n"
+                "グラフ ユーザー名"
+            )
+            line_bot_api.reply_message(event.reply_token, TextSendMessage(text=reply))
+
+        elif parts[0] == "登録" and len(parts) == 3:
+            reply = register_user(parts[1], parts[2], user_id)
+            line_bot_api.reply_message(event.reply_token, TextSendMessage(text=reply))
+
+        elif parts[0] == "リセット":
+            reply = reset_user(user_id)
+            line_bot_api.reply_message(event.reply_token, TextSendMessage(text=reply))
+
+        elif parts[0] == "体重":
+            user_info = get_user_info_by_id(user_id)
+            if not user_info:
+                line_bot_api.reply_message(event.reply_token, TextSendMessage(text="登録されていません。まず登録してください。"))
+            elif len(parts) == 2:
+                append_vertical_weight(user_info, datetime.now().strftime('%Y-%m-%d'), float(parts[1]))
+                line_bot_api.reply_message(event.reply_token, TextSendMessage(text=f"{user_info['username']} さんの体重 {parts[1]}kg を記録しました！"))
+            elif len(parts) == 3:
+                append_vertical_weight(user_info, parts[1], float(parts[2]))
+                line_bot_api.reply_message(event.reply_token, TextSendMessage(text=f"{user_info['username']} さんの体重 {parts[2]}kg（{parts[1]}）を記録しました！"))
+            else:
+                line_bot_api.reply_message(event.reply_token, TextSendMessage(text="体重コマンドの形式が正しくありません。"))
+
+        elif text.lower() == "グラフ送信":
+            user_info = get_user_info_by_id(user_id)
+            if not user_info:
+                line_bot_api.reply_message(event.reply_token, TextSendMessage(text="登録されていません。先に登録してください。"))
+            else:
+                send_monthly_weight_graph_to_line(user_info)
+            return
+
+        elif parts[0] == "グラフ" and len(parts) == 2:
+            user_info = get_user_info_by_username(parts[1])
+            if not user_info:
+                line_bot_api.reply_message(event.reply_token, TextSendMessage(text=f"{parts[1]} さんは未登録です。"))
+            else:
+                df = get_last_month_weight_data(parts[1])
+                if df is None or df.empty:
+                    line_bot_api.reply_message(event.reply_token, TextSendMessage(text="データがありません。"))
+                else:
+                    local_path = create_monthly_weight_graph(df, parts[1])
+                    safe_username = slugify(parts[1])
+                    filename = f"{safe_username}_weight_1month.jpg"
+                    img_url = f"{YOUR_PUBLIC_BASE_URL.rstrip('/')}/static/graphs/{filename}"
+                    line_bot_api.reply_message(event.reply_token, ImageSendMessage(
+                        original_content_url=img_url,
+                        preview_image_url=img_url
+                    ))
+                    return
+
+        else:
+            line_bot_api.reply_message(event.reply_token, TextSendMessage(text="コマンドが正しくありません。ヘルプと送ってください。"))
+
+    except Exception as e:
+        print(f"エラー: {e}")
+        line_bot_api.reply_message(event.reply_token, TextSendMessage(text=f"エラーが発生しました: {e}"))
+
+# === ファイルリスト表示用（デバッグ） ===
+@app.route("/list_graphs")
+def list_graphs():
+    static_dir = os.path.join(app.root_path, "static", "graphs")
+    try:
+        files = os.listdir(static_dir)
+        return "<br>".join(files)
+    except Exception as e:
+        return f"エラー: {e}"
 
 # === 静的ファイル配信 ===
 @app.route("/static/graphs/<filename>")
@@ -253,6 +266,3 @@ def serve_image(filename):
     ext = os.path.splitext(filename)[1].lower()
     mime = "image/jpeg" if ext in [".jpg", ".jpeg"] else "image/png"
     return send_file(filepath, mimetype=mime)
-@app.route("/")
-def index():
-    return "Bot is running!"

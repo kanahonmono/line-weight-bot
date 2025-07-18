@@ -238,7 +238,7 @@ def handle_message(event):
 
     except Exception as e:
         print(f"エラー: {e}")
-        line_bot_api.reply_message(event.reply_token, TextSendMessage(text=f"エラーが発生しました: {e}"))
+       
 
 # === ファイルリスト表示用（デバッグ） ===
 @app.route("/list_graphs")

@@ -156,6 +156,7 @@ def send_monthly_weight_graph_to_line(user_info):
     if not YOUR_PUBLIC_BASE_URL:
         raise Exception("YOUR_PUBLIC_BASE_URL が設定されていません")
     img_url = f"{YOUR_PUBLIC_BASE_URL.rstrip('/')}/static/graphs/{filename}"
+    print(f"[LOG] 送信画像URL: {img_url}")
     line_bot_api.push_message(user_info['user_id'], ImageSendMessage(
         original_content_url=img_url,
         preview_image_url=img_url

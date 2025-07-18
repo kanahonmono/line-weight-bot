@@ -1,4 +1,5 @@
 from flask import Flask, request, abort
+from flask import send_from_directory
 from linebot import LineBotApi, WebhookHandler
 from linebot.exceptions import InvalidSignatureError
 from linebot.models import MessageEvent, TextMessage, TextSendMessage, ImageSendMessage
@@ -181,7 +182,10 @@ def send_monthly_weight_graph_to_line(user_info):
     )
 
 # === LINEコールバック ===
-@app.route("/callback", methods=['POST'])
+@app.route('/static/graphs/<filename>')
+def serve_graph_image(filename):
+    static_dir = os.path.join(app.root_path, "static", "graphs")
+    return send_from_directory(static_dir, filename)
 def callback():
     signature = request.headers['X-Line-Signature']
     body = request.get_data(as_text=True)
@@ -295,7 +299,7 @@ def handle_message(event):
                 df = get_last_month_weight_data(username)
                 local_path = create_monthly_weight_graph(df, username)
                 filename = os.path.basename(local_path)
-                img_url = f"{YOUR_PUBLIC_BASE_URL}/temp/{filename}"
+                img_url = f"{YOUR_PUBLIC_BASE_URL}/static/graphs/{filename}"
 
                 line_bot_api.reply_message(
                     event.reply_token,

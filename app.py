@@ -10,6 +10,7 @@ from googleapiclient.discovery import build
 from datetime import datetime, timedelta
 import pandas as pd
 import matplotlib.pyplot as plt
+import matplotlib.font_manager as fm  # フォント管理用
 
 app = Flask(__name__)
 
@@ -33,6 +34,12 @@ credentials = service_account.Credentials.from_service_account_info(
 )
 sheet_service = build('sheets', 'v4', credentials=credentials)
 sheet = sheet_service.spreadsheets()
+
+# === IPAexゴシックフォント読み込み ===
+font_path = os.path.join(app.root_path, "fonts", "ipaexg.ttf")
+if not os.path.exists(font_path):
+    raise Exception(f"フォントファイルがありません: {font_path}")
+jp_font = fm.FontProperties(fname=font_path)
 
 # === ユーザー情報取得 ===
 def get_user_info_by_id(user_id):
@@ -125,9 +132,9 @@ def create_monthly_weight_graph(df, username):
     df['日付'] = pd.to_datetime(df['日付'])
     plt.figure(figsize=(8, 4))
     plt.plot(df['日付'], df['体重'].astype(float), marker='o', linestyle='-', color='blue')
-    plt.title(f"{username} さんの直近1か月の体重推移", fontname="IPAexGothic")
-    plt.xlabel("日付", fontname="IPAexGothic")
-    plt.ylabel("体重 (kg)", fontname="IPAexGothic")
+    plt.title(f"{username} さんの直近1か月の体重推移", fontproperties=jp_font)
+    plt.xlabel("日付", fontproperties=jp_font)
+    plt.ylabel("体重 (kg)", fontproperties=jp_font)
     plt.grid(True)
     plt.xticks(rotation=45)
     plt.tight_layout()
@@ -250,7 +257,7 @@ def list_graphs():
     except Exception as e:
         return f"エラー: {e}"
 
-# === 静的ファイルを送る ===
+# === 静的ファイル配信 ===
 @app.route("/static/graphs/<filename>")
 def serve_image(filename):
     filepath = os.path.join(app.root_path, "static", "graphs", filename)
@@ -259,4 +266,3 @@ def serve_image(filename):
     ext = os.path.splitext(filename)[1].lower()
     mime = "image/jpeg" if ext in [".jpg", ".jpeg"] else "image/png"
     return send_file(filepath, mimetype=mime)
-

@@ -2,6 +2,7 @@ from flask import Flask, request, abort, send_file
 from linebot import LineBotApi, WebhookHandler
 from linebot.exceptions import InvalidSignatureError
 from linebot.models import MessageEvent, TextMessage, TextSendMessage, ImageSendMessage
+from slugify import slugify
 import os
 import json
 from google.oauth2 import service_account
@@ -136,7 +137,8 @@ def create_monthly_weight_graph(df, username):
     plt.tight_layout()
     static_dir = os.path.join(app.root_path, "static", "graphs")
     os.makedirs(static_dir, exist_ok=True)
-    path = os.path.join(static_dir, f"{username}_weight_1month.png")
+    safe_username = slugify(username)
+    path = os.path.join(static_dir, f"{safe_username}_weight_1month.png")
     plt.savefig(path)
     plt.close()
     print(f"グラフ画像を保存しました: {path}")
@@ -218,7 +220,8 @@ def handle_message(event):
                     reply = "データがありません。"
                 else:
                     local_path = create_monthly_weight_graph(df, parts[1])
-                    filename = os.path.basename(local_path)
+                    safe_username = slugify(parts[1])
+                    filename = f"{safe_username}_weight_1month.png"
                     img_url = f"{YOUR_PUBLIC_BASE_URL}/static/graphs/{filename}"
                     line_bot_api.reply_message(event.reply_token, ImageSendMessage(
                         original_content_url=img_url,

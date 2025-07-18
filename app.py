@@ -110,6 +110,7 @@ def append_vertical_weight(user_info, date, weight):
         body=body
     ).execute()
 
+
 # === データ取得・グラフ生成 ===
 def get_weight_data_vertical(username):
     result = sheet.values().get(spreadsheetId=SPREADSHEET_ID, range="Weights!A2:D").execute()
@@ -146,15 +147,14 @@ def create_monthly_weight_graph(df, username):
     plt.tight_layout()
 
     # 一時ファイル保存
+    static_dir = os.path.join(app.root_path, "static", "graphs")
+    os.makedirs(static_dir, exist_ok=True)
+
     filename = f"{username}_weight_1month.png"
-    tmp_path = os.path.join("/tmp", filename)
-    plt.savefig(tmp_path)
+    path = os.path.join(static_dir, filename)
+    plt.savefig(path)
     plt.close()
-    return tmp_path
-    filename = f"static/{username}_weight_1month.png"
-    plt.savefig(filename)
-    plt.close()
-    return filename
+    return path
 
 
 

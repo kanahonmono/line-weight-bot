@@ -234,6 +234,7 @@ def handle_message(event):
                     safe_username = slugify(parts[1])
                     filename = f"{safe_username}_weight_1month.jpg"
                     img_url = f"{YOUR_PUBLIC_BASE_URL.rstrip('/')}/static/graphs/{filename}"
+                    print(f"[LOG] 送信画像URL: {img_url}")
                     line_bot_api.reply_message(event.reply_token, ImageSendMessage(
                         original_content_url=img_url,
                         preview_image_url=img_url
